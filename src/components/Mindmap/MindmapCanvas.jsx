@@ -1,5 +1,5 @@
 // src/components/Mindmap/MindmapCanvas.jsx
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useState, useMemo, useRef, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -10,11 +10,11 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { initialNodes, initialEdges } from './MindmapData';
 import GroupNode from './GroupNode';
 import DefaultNode from './DefaultNode';
 import InfoPanel from './InfoPanel';
 import { useAdmin } from '../../context/AdminContext';
+import { tinaClient, MINDMAP_QUERY, UPDATE_MINDMAP_MUTATION } from '../../tina/client';
 
 // Node type mappings
 const nodeTypes = {
@@ -194,198 +194,6 @@ function handleDrag(currentNodes, changes) {
   return nodes;
 }
 
-/**
- * Clean node data for export (remove React Flow internals)
- */
-const ALLOWED_NODE_KEYS = ['id', 'type', 'data', 'position', 'style', 'parentNode', 'draggable'];
-
-function cleanNode(node) {
-  const clean = {};
-  ALLOWED_NODE_KEYS.forEach((key) => {
-    if (node[key] !== undefined) {
-      clean[key] = node[key];
-    }
-  });
-
-  // Preserve labelPosition and group dimensions for group nodes
-  if (node.data) {
-    if (node.data.labelPosition) {
-      clean.data = {
-        ...clean.data,
-        labelPosition: node.data.labelPosition,
-      };
-    }
-    if (node.data.groupWidth !== undefined) {
-      clean.data = {
-        ...clean.data,
-        groupWidth: node.data.groupWidth,
-      };
-    }
-    if (node.data.groupHeight !== undefined) {
-      clean.data = {
-        ...clean.data,
-        groupHeight: node.data.groupHeight,
-      };
-    }
-  }
-
-  return clean;
-}
-
-/**
- * Clean edge data for export (remove React Flow internals)
- */
-const ALLOWED_EDGE_KEYS = ['id', 'source', 'target', 'type', 'animated', 'style', 'markerEnd', 'markerStart', 'label'];
-
-function cleanEdge(edge) {
-  const clean = {};
-  ALLOWED_EDGE_KEYS.forEach((key) => {
-    if (edge[key] !== undefined) {
-      clean[key] = edge[key];
-    }
-  });
-  return clean;
-}
-
-/**
- * Format nodes array as JavaScript code for export
- */
-function formatNodesArray(nodes) {
-  const cleaned = nodes.map(cleanNode);
-
-  const lines = cleaned.map((node) => {
-    const entries = [];
-
-    entries.push(`    id: '${node.id}'`);
-    entries.push(`    type: '${node.type}'`);
-
-    // Format data object
-    const dataEntries = [];
-    Object.entries(node.data).forEach(([k, v]) => {
-      if (k === 'labelPosition' && typeof v === 'object') {
-        dataEntries.push(`${k}: { x: ${Math.round(v.x)}, y: ${Math.round(v.y)} }`);
-      } else if (k === 'description' && typeof v === 'string') {
-        const escaped = v.replace(/'/g, "\\'").replace(/\n/g, '\\n');
-        dataEntries.push(`${k}: '${escaped}'`);
-      } else if (k === 'computedWidth') {
-        // Skip computedWidth from export
-        return;
-      } else {
-        dataEntries.push(`${k}: ${typeof v === 'string' ? `'${v}'` : v}`);
-      }
-    });
-    entries.push(`    data: { ${dataEntries.join(', ')} }`);
-
-    entries.push(
-      `    position: { x: ${Math.round(node.position.x)}, y: ${Math.round(node.position.y)} }`
-    );
-
-    if (node.style) {
-      const styleEntries = Object.entries(node.style)
-        .map(([k, v]) => `${k}: ${typeof v === 'string' ? `'${v}'` : v}`)
-        .join(', ');
-      entries.push(`    style: { ${styleEntries} }`);
-    }
-
-    if (node.parentNode) {
-      entries.push(`    parentNode: '${node.parentNode}'`);
-    }
-
-    if (node.draggable !== undefined) {
-      entries.push(`    draggable: ${node.draggable}`);
-    }
-
-    return `  {\n${entries.join(',\n')},\n  }`;
-  });
-
-  return `export const initialNodes = [\n${lines.join(',\n')},\n];\n`;
-}
-
-/**
- * Format edges array as JavaScript code for export
- */
-function formatEdgesArray(edges) {
-  const cleaned = edges.map(cleanEdge);
-
-  const lines = cleaned.map((edge) => {
-    const entries = [];
-
-    entries.push(`    id: '${edge.id}'`);
-    entries.push(`    source: '${edge.source}'`);
-    entries.push(`    target: '${edge.target}'`);
-    entries.push(`    type: '${edge.type}'`);
-
-    if (edge.animated) {
-      entries.push(`    animated: ${edge.animated}`);
-    }
-
-    if (edge.style) {
-      const styleEntries = Object.entries(edge.style)
-        .map(([k, v]) => `${k}: ${typeof v === 'string' ? `'${v}'` : v}`)
-        .join(', ');
-      entries.push(`    style: { ${styleEntries} }`);
-    }
-
-    if (edge.markerEnd) {
-      const markerEntries = Object.entries(edge.markerEnd)
-        .map(([k, v]) => `${k}: '${v}'`)
-        .join(', ');
-      entries.push(`    markerEnd: { ${markerEntries} }`);
-    }
-
-    if (edge.markerStart) {
-      const markerEntries = Object.entries(edge.markerStart)
-        .map(([k, v]) => `${k}: '${v}'`)
-        .join(', ');
-      entries.push(`    markerStart: { ${markerEntries} }`);
-    }
-
-    if (edge.label) {
-      const escaped = edge.label.replace(/'/g, "\\'");
-      entries.push(`    label: '${escaped}'`);
-    }
-
-    return `  {\n${entries.join(',\n')},\n  }`;
-  });
-
-  return `export const initialEdges = [\n${lines.join(',\n')},\n];\n`;
-}
-
-/**
- * Download multiple files as a zip (using JSZip-like functionality via blob)
- */
-async function downloadMultipleFiles(files) {
-  // If only one file, download directly
-  if (files.length === 1) {
-    const { filename, content } = files[0];
-    const blob = new Blob([content], { type: 'text/javascript' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    return;
-  }
-
-  // For multiple files, download them one by one
-  for (const { filename, content } of files) {
-    const blob = new Blob([content], { type: 'text/javascript' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    
-    // Small delay between downloads
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-}
 
 // ──────────────────────────────────────────────────────────────
 // Main Component
@@ -393,9 +201,10 @@ async function downloadMultipleFiles(files) {
 
 const MindmapCanvas = () => {
   const { isAdmin, isEditingText, toggleAdmin, toggleTextEdit } = useAdmin();
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const [copyStatus, setCopyStatus] = useState(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [loadStatus, setLoadStatus] = useState('loading');
+  const [saveStatus, setSaveStatus] = useState(null);
   const [selectedElement, setSelectedElement] = useState(null); // Can be node or edge
   const isPanningRef = useRef(false);
   const nodeIdCounter = useRef(1000); // Start high to avoid conflicts
@@ -404,6 +213,44 @@ const MindmapCanvas = () => {
     () => nodes.filter((node) => node.type === 'groupNode'),
     [nodes]
   );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchMindmap = async () => {
+      try {
+        const response = await tinaClient.request({
+          query: MINDMAP_QUERY,
+          variables: { relativePath: 'index.json' },
+        });
+        const data = response?.data?.mindmap;
+        let parsedNodes = [];
+        let parsedEdges = [];
+
+        try {
+          parsedNodes = data?.nodes ? JSON.parse(data.nodes) : [];
+          parsedEdges = data?.edges ? JSON.parse(data.edges) : [];
+        } catch (parseError) {
+          console.error('Failed to parse mindmap JSON', parseError);
+        }
+
+        if (!isMounted) return;
+        setNodes(parsedNodes);
+        setEdges(parsedEdges);
+        setLoadStatus('success');
+      } catch (error) {
+        console.error('Failed to load mindmap from TinaCMS', error);
+        if (!isMounted) return;
+        setLoadStatus('error');
+      }
+    };
+
+    fetchMindmap();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [setEdges, setNodes]);
 
   // Calculate optimal edge routing dynamically
   const optimizedEdges = useMemo(() => {
@@ -649,36 +496,27 @@ const MindmapCanvas = () => {
     [selectedElement, setEdges]
   );
 
-  // Download all relevant files
-  const handleDownloadData = useCallback(async () => {
-    const nodesCode = formatNodesArray(nodes);
-    const edgesCode = formatEdgesArray(edges);
-    const mindmapDataCode = `// src/components/Mindmap/MindmapData.js\n\n${nodesCode}\n${edgesCode}`;
-
-    const files = [
-      {
-        filename: 'MindmapData.js',
-        content: mindmapDataCode,
-      },
-    ];
-
+  // Save to TinaCMS
+  const handleSaveData = useCallback(async () => {
+    setSaveStatus('saving');
     try {
-      await downloadMultipleFiles(files);
-      setCopyStatus('success');
+      await tinaClient.request({
+        query: UPDATE_MINDMAP_MUTATION,
+        variables: {
+          relativePath: 'index.json',
+          data: {
+            nodes: JSON.stringify(nodes),
+            edges: JSON.stringify(edges),
+          },
+        },
+      });
+      setSaveStatus('success');
     } catch (error) {
-      console.error('Download error:', error);
-      // Fallback: open in new window
-      const w = window.open('', '_blank');
-      w.document.write(
-        '<pre style="padding:20px;font-size:13px;white-space:pre-wrap;">' +
-          mindmapDataCode.replace(/</g, '&lt;') +
-          '</pre>'
-      );
-      w.document.close();
-      setCopyStatus('error');
+      console.error('Save error:', error);
+      setSaveStatus('error');
     }
 
-    setTimeout(() => setCopyStatus(null), 2500);
+    setTimeout(() => setSaveStatus(null), 2500);
   }, [nodes, edges]);
 
   return (
@@ -717,31 +555,37 @@ const MindmapCanvas = () => {
           }}
         >
           <button
-            onClick={handleDownloadData}
+            onClick={handleSaveData}
+            disabled={saveStatus === 'saving' || loadStatus === 'loading'}
             style={{
               padding: '8px 14px',
               borderRadius: '6px',
               border: 'none',
-              cursor: 'pointer',
+              cursor: saveStatus === 'saving' || loadStatus === 'loading' ? 'wait' : 'pointer',
               fontSize: '13px',
               fontWeight: 600,
               color: '#fff',
               backgroundColor:
-                copyStatus === 'success'
+                saveStatus === 'success'
                   ? '#16a34a'
-                  : copyStatus === 'error'
+                  : saveStatus === 'error'
                   ? '#ea580c'
                   : '#3b82f6',
               boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
               transition: 'background-color 0.2s',
               userSelect: 'none',
+              opacity: saveStatus === 'saving' || loadStatus === 'loading' ? 0.7 : 1,
             }}
           >
-            {copyStatus === 'success'
-              ? '✅ Downloadet!'
-              : copyStatus === 'error'
-              ? '📄 Åbnet i nyt vindue'
-              : '💾 Download Filer'}
+            {loadStatus === 'loading'
+              ? '⏳ Henter...'
+              : saveStatus === 'saving'
+              ? '⏳ Gemmer...'
+              : saveStatus === 'success'
+              ? '✅ Gemt!'
+              : saveStatus === 'error'
+              ? '⚠️ Fejl ved gem'
+              : '💾 Gem Ændringer'}
           </button>
 
           <button

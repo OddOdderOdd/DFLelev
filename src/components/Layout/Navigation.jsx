@@ -6,7 +6,7 @@ export default function Navigation() {
     { path: '/mindmap', label: 'Mindmap' },
     { path: '/skolekort', label: 'Skolekort' },
     { path: '/ressourcer', label: 'Ressourcer' },
-    { path: '/kollegier', label: 'Kollegier' },
+    { path: '/ressourcer/kollegier', label: '↳ Kollegier', isChild: true },
     { path: '/arkiv', label: 'Arkiv' }
   ];
 
@@ -18,7 +18,9 @@ export default function Navigation() {
             <li key={link.path}>
               <Link 
                 to={link.path} 
-                className="hover:text-blue-200 transition-colors duration-200"
+                className={`hover:text-blue-200 transition-colors duration-200 ${
+                  link.isChild ? 'ml-2 text-blue-100' : ''
+                }`}
               >
                 {link.label}
               </Link>

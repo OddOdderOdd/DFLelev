@@ -23,3 +23,23 @@ export const RESOURCES_QUERY = `
     }
   }
 `;
+
+export const MINDMAP_QUERY = `
+  query MindmapDocument($relativePath: String!) {
+    mindmap(relativePath: $relativePath) {
+      nodes
+      edges
+    }
+  }
+`;
+
+export const UPDATE_MINDMAP_MUTATION = `
+  mutation UpdateMindmapDocument($relativePath: String!, $data: MindmapUpdateInput!) {
+    updateMindmapDocument(relativePath: $relativePath, params: { data: $data }) {
+      data {
+        nodes
+        edges
+      }
+    }
+  }
+`;
