@@ -400,6 +400,11 @@ const MindmapCanvas = () => {
   const isPanningRef = useRef(false);
   const nodeIdCounter = useRef(1000); // Start high to avoid conflicts
 
+  const groupNodes = useMemo(
+    () => nodes.filter((node) => node.type === 'groupNode'),
+    [nodes]
+  );
+
   // Calculate optimal edge routing dynamically
   const optimizedEdges = useMemo(() => {
     return edges.map((edge) => {
@@ -502,6 +507,96 @@ const MindmapCanvas = () => {
 
     setNodes((nds) => [...nds, newNode]);
   }, [setNodes]);
+
+  const handleAddGroup = useCallback(() => {
+    const newGroupId = `group_${nodeIdCounter.current++}`;
+    const newGroup = {
+      id: newGroupId,
+      type: 'groupNode',
+      data: {
+        label: 'Ny Gruppe',
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+        labelColor: '#1e293b',
+      },
+      position: { x: 420, y: 220 },
+      style: {
+        width: 320,
+        height: 220,
+      },
+      draggable: true,
+    };
+
+    setNodes((nds) => [...nds, newGroup]);
+  }, [setNodes]);
+
+  const handleAssignNodeToGroup = useCallback(
+    (nodeId, groupId) => {
+      setNodes((nds) => {
+        const node = nds.find((n) => n.id === nodeId);
+        const group = nds.find((n) => n.id === groupId);
+        if (!node || !group) return nds;
+
+        const nodeBounds = getNodeBounds(node, nds);
+        const groupBounds = getNodeBounds(group, nds);
+        const groupWidth = group.style?.width || 300;
+        const groupHeight = group.style?.height || 200;
+
+        const maxX = Math.max(
+          PADDING.LEFT,
+          groupWidth - nodeBounds.width - PADDING.RIGHT
+        );
+        const maxY = Math.max(
+          PADDING.TOP,
+          groupHeight - nodeBounds.height - PADDING.BOTTOM
+        );
+
+        const relativePosition = {
+          x: Math.min(
+            maxX,
+            Math.max(PADDING.LEFT, nodeBounds.x - groupBounds.x)
+          ),
+          y: Math.min(
+            maxY,
+            Math.max(PADDING.TOP, nodeBounds.y - groupBounds.y)
+          ),
+        };
+
+        return nds.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                parentNode: groupId,
+                position: relativePosition,
+              }
+            : n
+        );
+      });
+    },
+    [setNodes]
+  );
+
+  const handleRemoveNodeFromGroup = useCallback(
+    (nodeId) => {
+      setNodes((nds) => {
+        const node = nds.find((n) => n.id === nodeId);
+        if (!node || !node.parentNode) return nds;
+
+        const nodeBounds = getNodeBounds(node, nds);
+
+        return nds.map((n) =>
+          n.id === nodeId
+            ? {
+                ...n,
+                parentNode: undefined,
+                position: { x: nodeBounds.x, y: nodeBounds.y },
+              }
+            : n
+        );
+      });
+    },
+    [setNodes]
+  );
 
   // Delete selected element (node or edge)
   const handleDelete = useCallback(() => {
@@ -675,6 +770,31 @@ const MindmapCanvas = () => {
           </button>
 
           <button
+            onClick={handleAddGroup}
+            style={{
+              padding: '8px 14px',
+              borderRadius: '6px',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#fff',
+              backgroundColor: '#6366f1',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+              transition: 'background-color 0.2s',
+              userSelect: 'none',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#4f46e5';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#6366f1';
+            }}
+          >
+            🧩 Tilføj Gruppe
+          </button>
+
+          <button
             onClick={toggleTextEdit}
             style={{
               padding: '8px 14px',
@@ -752,6 +872,8 @@ const MindmapCanvas = () => {
         nodeTypes={nodeTypes}
         fitView
         className="bg-gray-50"
+        connectionMode="loose"
+        connectionRadius={40}
         defaultEdgeOptions={{
           type: 'default',
           style: { strokeWidth: 2 },
@@ -786,6 +908,9 @@ const MindmapCanvas = () => {
           onNodeUpdate={handleNodeUpdate}
           onEdgeUpdate={handleEdgeUpdate}
           onDelete={handleDelete}
+          groupNodes={groupNodes}
+          onAssignNodeToGroup={handleAssignNodeToGroup}
+          onRemoveNodeFromGroup={handleRemoveNodeFromGroup}
         />
       )}
     </div>

@@ -3,15 +3,26 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../../context/AdminContext';
 
-const InfoPanel = ({ element, onClose, onNodeUpdate, onEdgeUpdate, onDelete }) => {
+const InfoPanel = ({
+  element,
+  onClose,
+  onNodeUpdate,
+  onEdgeUpdate,
+  onDelete,
+  groupNodes = [],
+  onAssignNodeToGroup,
+  onRemoveNodeFromGroup,
+}) => {
   const { isEditingText, isAdmin } = useAdmin();
   const isNode = element.type === 'node';
   const isEdge = element.type === 'edge';
+  const isGroupNode = isNode && element.data.type === 'groupNode';
 
   // Node state
   const [label, setLabel] = useState('');
   const [description, setDescription] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('');
   
   // Node color state
   const [borderColor, setBorderColor] = useState('#64748b');
@@ -34,6 +45,7 @@ const InfoPanel = ({ element, onClose, onNodeUpdate, onEdgeUpdate, onDelete }) =
       setBorderColor(element.data.data?.borderColor || '#64748b');
       setBackgroundColor(element.data.data?.backgroundColor || '#ffffff');
       setTextColor(element.data.data?.textColor || '#334155');
+      setSelectedGroup(element.data.parentNode || '');
     } else if (isEdge) {
       setEdgeLabel(element.data.label || '');
       setIsAnimated(element.data.animated || false);
@@ -117,6 +129,18 @@ const InfoPanel = ({ element, onClose, onNodeUpdate, onEdgeUpdate, onDelete }) =
     }
 
     onEdgeUpdate(updatedEdge);
+  };
+
+  const handleGroupSelectionChange = (event) => {
+    const nextGroupId = event.target.value;
+    setSelectedGroup(nextGroupId);
+
+    if (!nextGroupId) {
+      onRemoveNodeFromGroup?.(element.data.id);
+      return;
+    }
+
+    onAssignNodeToGroup?.(element.data.id, nextGroupId);
   };
 
   // Handle edge animated toggle
@@ -351,6 +375,50 @@ const InfoPanel = ({ element, onClose, onNodeUpdate, onEdgeUpdate, onDelete }) =
                       }}
                     />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {isAdmin && !isGroupNode && (
+              <div style={{ marginBottom: '24px' }}>
+                <div
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    color: '#64748b',
+                    marginBottom: '12px',
+                  }}
+                >
+                  🗂️ Gruppe
+                </div>
+                <select
+                  value={selectedGroup}
+                  onChange={handleGroupSelectionChange}
+                  style={{
+                    width: '100%',
+                    fontSize: '14px',
+                    padding: '10px 12px',
+                    border: '2px solid #cbd5e1',
+                    borderRadius: '6px',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="">Ingen gruppe</option>
+                  {groupNodes.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.data?.label || group.id}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    marginTop: '6px',
+                  }}
+                >
+                  Vælg en gruppe for at låse noden inde i den.
                 </div>
               </div>
             )}
