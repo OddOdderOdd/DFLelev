@@ -29,8 +29,8 @@ function App() {
               <Route path="/skolekort" element={<Skolekort />} />
               <Route path="/ressourcer" element={<Ressourcer />} />
               <Route path="/artikel/:id" element={<ArtikelDetail />} />
-              <Route path="/kollegier" element={<Kollegier />} />
-              <Route path="/kollegium/:id" element={<KollegieDetail />} />
+              <Route path="/ressourcer/kollegier" element={<Kollegier />} />
+              <Route path="/ressourcer/kollegier/:id" element={<KollegieDetail />} />
               <Route path="/arkiv" element={<Arkiv />} />
               <Route path="/arkiv/:id" element={<ArkivDetail />} />
             </Routes>

@@ -1,19 +1,17 @@
 import { Link } from 'react-router-dom';
-
 export default function Navigation() {
   const navLinks = [
     { path: '/', label: 'Forside' },
     { path: '/mindmap', label: 'Mindmap' },
     { path: '/skolekort', label: 'Skolekort' },
     { path: '/ressourcer', label: 'Ressourcer' },
-    { path: '/kollegier', label: 'Kollegier' },
-    { path: '/arkiv', label: 'Arkiv' }
+    { path: '/arkiv', label: 'Arkiv' },
   ];
 
   return (
     <nav className="bg-blue-500 text-white">
-      <div className="container mx-auto px-4">
-        <ul className="flex flex-wrap gap-6 py-4">
+      <div className="container mx-auto px-4 py-4">
+        <ul className="flex flex-wrap gap-6">
           {navLinks.map((link) => (
             <li key={link.path}>
               <Link 
