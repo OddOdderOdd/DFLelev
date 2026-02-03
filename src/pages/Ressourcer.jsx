@@ -44,6 +44,13 @@ const getResourceHref = (resource) => {
   return '';
 };
 
+const normalizeResourcePath = (value) => {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  const normalized = value.replace(/^\/?uploads\//, 'arkiv/');
+  return normalized.startsWith('/') ? normalized : `/${normalized}`;
+};
+
 export default function Ressourcer() {
   const { isAdmin } = useAdmin();
   const [resources, setResources] = useState([]);
@@ -77,8 +84,9 @@ export default function Ressourcer() {
   const resourceCards = useMemo(() => {
     return resources.map((resource) => {
       const typeStyles = TYPE_STYLES[resource.type] || TYPE_STYLES.Document;
-      const href = getResourceHref(resource);
+      const href = normalizeResourcePath(getResourceHref(resource));
       const isActionDisabled = resource.type !== 'Video' && !href;
+      const thumbnailSrc = normalizeResourcePath(resource.thumbnail);
 
       return (
         <article
@@ -86,9 +94,9 @@ export default function Ressourcer() {
           className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
         >
           <div className="relative h-44 w-full bg-slate-100">
-            {resource.thumbnail ? (
+            {thumbnailSrc ? (
               <img
-                src={resource.thumbnail}
+                src={thumbnailSrc}
                 alt={resource.title}
                 className="h-full w-full object-cover"
               />
@@ -168,7 +176,7 @@ export default function Ressourcer() {
             <FileExplorer
               title="Admin: Ressourcer"
               description="Administrer dokumenter og billeder i TinaCMS."
-              baseDirectory="uploads"
+              baseDirectory="arkiv"
               uploadAccept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
               emptyMessage="Ingen ressourcer i filsystemet endnu."
             />
