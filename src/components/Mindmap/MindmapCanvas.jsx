@@ -15,6 +15,7 @@ import DefaultNode from './DefaultNode';
 import InfoPanel from './InfoPanel';
 import { useAdmin } from '../../context/AdminContext';
 import { tinaClient, MINDMAP_QUERY, UPDATE_MINDMAP_MUTATION } from '../../tina/client';
+import { initialNodes, initialEdges } from './MindmapData';
 
 // Node type mappings
 const nodeTypes = {
@@ -200,7 +201,7 @@ function handleDrag(currentNodes, changes) {
 // ──────────────────────────────────────────────────────────────
 
 const MindmapCanvas = () => {
-  const { isAdmin, isEditingText, toggleAdmin, toggleTextEdit } = useAdmin();
+  const { isAdmin, isEditingText, toggleTextEdit } = useAdmin();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loadStatus, setLoadStatus] = useState('loading');
@@ -234,10 +235,31 @@ const MindmapCanvas = () => {
           console.error('Failed to parse mindmap JSON', parseError);
         }
 
+        const shouldSeed = parsedNodes.length === 0 && parsedEdges.length === 0;
+        const nextNodes = shouldSeed ? initialNodes : parsedNodes;
+        const nextEdges = shouldSeed ? initialEdges : parsedEdges;
+
         if (!isMounted) return;
-        setNodes(parsedNodes);
-        setEdges(parsedEdges);
+        setNodes(nextNodes);
+        setEdges(nextEdges);
         setLoadStatus('success');
+
+        if (shouldSeed) {
+          try {
+            await tinaClient.request({
+              query: UPDATE_MINDMAP_MUTATION,
+              variables: {
+                relativePath: 'index.json',
+                data: {
+                  nodes: JSON.stringify(nextNodes),
+                  edges: JSON.stringify(nextEdges),
+                },
+              },
+            });
+          } catch (seedError) {
+            console.error('Failed to seed mindmap in TinaCMS', seedError);
+          }
+        }
       } catch (error) {
         console.error('Failed to load mindmap from TinaCMS', error);
         if (!isMounted) return;
@@ -658,48 +680,6 @@ const MindmapCanvas = () => {
           </button>
         </div>
       )}
-
-      {/* Admin Mode Toggle - Top Right */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 12,
-          right: 12,
-          zIndex: 10,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '8px 14px',
-          borderRadius: '6px',
-          backgroundColor: '#ffffff',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-        }}
-      >
-        <label
-          style={{
-            fontSize: '13px',
-            fontWeight: 600,
-            color: '#334155',
-            cursor: 'pointer',
-            userSelect: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={isAdmin}
-            onChange={toggleAdmin}
-            style={{
-              cursor: 'pointer',
-              width: '16px',
-              height: '16px',
-            }}
-          />
-          Admin tools
-        </label>
-      </div>
 
       {/* ReactFlow canvas */}
       <ReactFlow
