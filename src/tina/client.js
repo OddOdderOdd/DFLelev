@@ -18,8 +18,39 @@ export const RESOURCES_QUERY = `
           videoUrl
           thumbnail
           description
+          _sys {
+            relativePath
+          }
         }
       }
+    }
+  }
+`;
+
+export const MINDMAP_QUERY = `
+  query MindmapDocument($relativePath: String!) {
+    mindmap(relativePath: $relativePath) {
+      nodes
+      edges
+    }
+  }
+`;
+
+export const UPDATE_MINDMAP_MUTATION = `
+  mutation UpdateMindmapDocument($relativePath: String!, $data: MindmapUpdateInput!) {
+    updateMindmapDocument(relativePath: $relativePath, params: { data: $data }) {
+      data {
+        nodes
+        edges
+      }
+    }
+  }
+`;
+
+export const DELETE_RESOURCE_MUTATION = `
+  mutation DeleteResourceDocument($relativePath: String!) {
+    deleteResourcesDocument(relativePath: $relativePath) {
+      __typename
     }
   }
 `;

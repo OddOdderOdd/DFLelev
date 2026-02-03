@@ -16,12 +16,43 @@ export default defineConfig({
   },
   media: {
     tina: {
-      mediaRoot: 'uploads',
+      mediaRoot: '',
       publicFolder: 'public',
     },
   },
   schema: {
     collections: [
+      {
+        name: 'mindmap',
+        label: 'Mindmap',
+        path: 'content/mindmap',
+        format: 'json',
+        ui: {
+          allowedActions: {
+            create: false,
+            delete: false,
+            rename: false,
+          },
+        },
+        fields: [
+          {
+            name: 'nodes',
+            label: 'Nodes JSON',
+            type: 'string',
+            ui: {
+              component: 'textarea',
+            },
+          },
+          {
+            name: 'edges',
+            label: 'Edges JSON',
+            type: 'string',
+            ui: {
+              component: 'textarea',
+            },
+          },
+        ],
+      },
       {
         name: 'resources',
         label: 'Resources',

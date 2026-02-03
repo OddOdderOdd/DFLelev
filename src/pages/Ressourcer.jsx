@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TinaMarkdown } from 'tinacms/dist/rich-text';
-import { RESOURCES_QUERY, tinaClient } from '../tina/client';
+import { DELETE_RESOURCE_MUTATION, RESOURCES_QUERY, tinaClient } from '../tina/client';
+import FileExplorer from '../components/FileExplorer/FileExplorer';
+import { useAdmin } from '../context/AdminContext';
 
 const TYPE_STYLES = {
   Document: {
@@ -32,20 +34,45 @@ const getVideoEmbedUrl = (url) => {
   return url;
 };
 
+const withBaseUrl = (path) => {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = import.meta.env.BASE_URL || '/';
+  return `${base}${path.replace(/^\/+/, '')}`;
+};
+
 const getResourceHref = (resource) => {
   if (resource.type === 'Document') {
-    return resource.file;
+    return withBaseUrl(resource.file);
   }
   if (resource.type === 'Link') {
-    return resource.file || resource.videoUrl;
+    return withBaseUrl(resource.file || resource.videoUrl);
   }
   return '';
 };
 
 export default function Ressourcer() {
+  const { isAdmin } = useAdmin();
   const [resources, setResources] = useState([]);
   const [status, setStatus] = useState('loading');
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const [deleteStatus, setDeleteStatus] = useState(null);
+
+  const handleDeleteResource = async (resource) => {
+    if (!resource?._sys?.relativePath) return;
+    setDeleteStatus(resource.id);
+    try {
+      await tinaClient.request({
+        query: DELETE_RESOURCE_MUTATION,
+        variables: { relativePath: resource._sys.relativePath },
+      });
+      setResources((prev) => prev.filter((item) => item.id !== resource.id));
+    } catch (error) {
+      console.error('Failed to delete resource', error);
+    } finally {
+      setDeleteStatus(null);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -112,42 +139,54 @@ export default function Ressourcer() {
               </div>
             )}
 
-            <div className="mt-auto flex items-center justify-between pt-2">
+            <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-2">
               <div className="text-sm text-slate-500">{typeStyles.icon}</div>
 
-              {resource.type === 'Video' ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedVideo(resource)}
-                  className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                >
-                  Afspil
-                </button>
-              ) : (
-                <a
-                  href={href || undefined}
-                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                    isActionDisabled
-                      ? 'cursor-not-allowed border-slate-200 text-slate-400'
-                      : 'border-slate-200 text-slate-700 hover:border-slate-300 hover:text-slate-900'
-                  }`}
-                  target={resource.type === 'Link' ? '_blank' : undefined}
-                  rel={resource.type === 'Link' ? 'noreferrer' : undefined}
-                  onClick={(event) => {
-                    if (isActionDisabled) {
-                      event.preventDefault();
-                    }
-                  }}
-                >
-                  Åbn
-                </a>
-              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {resource.type === 'Video' ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVideo(resource)}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Afspil
+                  </button>
+                ) : (
+                  <a
+                    href={href || undefined}
+                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                      isActionDisabled
+                        ? 'cursor-not-allowed border-slate-200 text-slate-400'
+                        : 'border-slate-200 text-slate-700 hover:border-slate-300 hover:text-slate-900'
+                    }`}
+                    target={resource.type === 'Link' ? '_blank' : undefined}
+                    rel={resource.type === 'Link' ? 'noreferrer' : undefined}
+                    onClick={(event) => {
+                      if (isActionDisabled) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
+                    Åbn
+                  </a>
+                )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteResource(resource)}
+                    disabled={deleteStatus === resource.id}
+                    className="inline-flex items-center gap-2 rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deleteStatus === resource.id ? 'Sletter...' : 'Slet'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </article>
       );
     });
-  }, [resources]);
+  }, [resources, isAdmin, deleteStatus]);
 
   return (
     <div className="bg-slate-50">
@@ -159,6 +198,18 @@ export default function Ressourcer() {
             TinaCMS, så strukturen matcher dine mapper.
           </p>
         </div>
+
+        {isAdmin && (
+          <div className="mb-10">
+            <FileExplorer
+              title="Admin: Ressourcer"
+              description="Administrer dokumenter og billeder i TinaCMS."
+              baseDirectory="uploads"
+              uploadAccept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+              emptyMessage="Ingen ressourcer i filsystemet endnu."
+            />
+          </div>
+        )}
 
         {status === 'loading' && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500">
