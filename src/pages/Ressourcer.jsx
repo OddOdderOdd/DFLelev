@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TinaMarkdown } from 'tinacms/dist/rich-text';
 import { RESOURCES_QUERY, tinaClient } from '../tina/client';
+import FileExplorer from '../components/FileExplorer/FileExplorer';
+import { useAdmin } from '../context/AdminContext';
 
 const TYPE_STYLES = {
   Document: {
@@ -43,6 +45,7 @@ const getResourceHref = (resource) => {
 };
 
 export default function Ressourcer() {
+  const { isAdmin } = useAdmin();
   const [resources, setResources] = useState([]);
   const [status, setStatus] = useState('loading');
   const [selectedVideo, setSelectedVideo] = useState(null);
@@ -159,6 +162,18 @@ export default function Ressourcer() {
             TinaCMS, så strukturen matcher dine mapper.
           </p>
         </div>
+
+        {isAdmin && (
+          <div className="mb-10">
+            <FileExplorer
+              title="Admin: Ressourcer"
+              description="Administrer dokumenter og billeder i TinaCMS."
+              baseDirectory="uploads"
+              uploadAccept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+              emptyMessage="Ingen ressourcer i filsystemet endnu."
+            />
+          </div>
+        )}
 
         {status === 'loading' && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500">
