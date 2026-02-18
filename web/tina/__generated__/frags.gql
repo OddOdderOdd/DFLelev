@@ -1,0 +1,48 @@
+fragment MindmapParts on Mindmap {
+  __typename
+  nodes {
+    __typename
+    id
+    type
+    parentNode
+    draggable
+    data {
+      __typename
+      label
+      description
+      borderColor
+      backgroundColor
+      labelColor
+    }
+    position {
+      __typename
+      x
+      y
+    }
+    style {
+      __typename
+      width
+      height
+      zIndex
+    }
+  }
+  edges {
+    __typename
+    id
+    source
+    target
+    label
+    animated
+    type
+  }
+}
+
+fragment ResourcesParts on Resources {
+  __typename
+  title
+  type
+  file
+  videoUrl
+  thumbnail
+  description
+}

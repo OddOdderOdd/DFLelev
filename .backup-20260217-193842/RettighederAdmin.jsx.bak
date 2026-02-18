@@ -1,0 +1,271 @@
+// src/pages/RettighederAdmin.jsx
+// Owner/Admin kan definere hvilke roller der har adgang til hvad
+
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth, ALLE_RETTIGHEDER } from '../context/AuthContext';
+
+export default function RettighederAdmin() {
+  const navigate = useNavigate();
+  const { bruger, erAdmin, token, rolleRettigheder, setRolleRettigheder } = useAuth();
+
+  // Alle unikke roller fra alle brugere
+  const [alleRoller, setAlleRoller] = useState([]);
+  const [lokaleRet, setLokaleRet]   = useState({});
+  const [loader, setLoader]         = useState(true);
+  const [gemmer, setGemmer]         = useState(false);
+  const [besked, setBesked]         = useState('');
+  const [valgtRolle, setValgtRolle] = useState(null);
+
+  useEffect(() => {
+    if (!bruger || !erAdmin) return;
+    hentData();
+  }, [bruger]);
+
+  async function hentData() {
+    setLoader(true);
+    try {
+      // Hent alle brugere for at udlede roller
+      const bSvar = await fetch('/api/auth/admin/brugere', {
+        headers: { 'x-auth-token': token }
+      });
+      const brugere = bSvar.ok ? await bSvar.json() : [];
+
+      // Saml alle unikke rolle-navne på tværs af brugere
+      const rolleSet = new Set(['Admin', 'Owner']); // Disse er altid med
+      brugere.forEach(b => {
+        (b.myndigheder || []).forEach(m => {
+          if (m.rolle) rolleSet.add(m.rolle);
+        });
+      });
+      setAlleRoller([...rolleSet].sort());
+
+      // Hent nuværende rettigheds-mapping fra server
+      const rSvar = await fetch('/api/auth/rettigheder');
+      const rettigheder = rSvar.ok ? await rSvar.json() : {};
+      setLokaleRet(rettigheder);
+    } catch {
+      setBesked('Fejl ved hentning af data');
+    } finally {
+      setLoader(false);
+    }
+  }
+
+  function harRet(rolle, retId) {
+    return (lokaleRet[rolle] || []).includes(retId);
+  }
+
+  function toggleRet(rolle, retId) {
+    setLokaleRet(prev => {
+      const nuv = prev[rolle] || [];
+      const ny  = nuv.includes(retId)
+        ? nuv.filter(r => r !== retId)
+        : [...nuv, retId];
+      return { ...prev, [rolle]: ny };
+    });
+  }
+
+  function giveAlle(rolle) {
+    setLokaleRet(prev => ({
+      ...prev,
+      [rolle]: ALLE_RETTIGHEDER.map(r => r.id)
+    }));
+  }
+
+  function fjernAlle(rolle) {
+    setLokaleRet(prev => ({ ...prev, [rolle]: [] }));
+  }
+
+  async function gem() {
+    setGemmer(true);
+    setBesked('');
+    try {
+      const svar = await fetch('/api/auth/admin/rettigheder', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-auth-token': token
+        },
+        body: JSON.stringify(lokaleRet)
+      });
+      if (svar.ok) {
+        setRolleRettigheder(lokaleRet);
+        setBesked('✅ Rettigheder gemt!');
+      } else {
+        setBesked('❌ Fejl ved gemning');
+      }
+    } catch {
+      setBesked('❌ Serverfejl');
+    } finally {
+      setGemmer(false);
+    }
+  }
+
+  // Grupper rettigheder
+  const grupper = {};
+  ALLE_RETTIGHEDER.forEach(r => {
+    if (!grupper[r.gruppe]) grupper[r.gruppe] = [];
+    grupper[r.gruppe].push(r);
+  });
+
+  if (!bruger || !erAdmin) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-red-600">Kun Owner/Admin har adgang til denne side</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4">
+      <div className="max-w-5xl mx-auto">
+
+        {/* Header */}
+        <div className="mb-8">
+          <button onClick={() => navigate('/kontrolpanel')}
+            className="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1 mb-4">
+            ← Tilbage
+          </button>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Rettigheder</h1>
+              <p className="text-gray-500 text-sm mt-1">
+                Definer hvilke roller der har adgang til hvilke dele af systemet.
+                Owner og Admin har altid alle rettigheder.
+              </p>
+            </div>
+            <button onClick={gem} disabled={gemmer}
+              className="bg-green-700 hover:bg-green-800 text-white px-5 py-2.5 rounded-xl font-medium text-sm transition-colors disabled:opacity-50 ml-4 shrink-0">
+              {gemmer ? 'Gemmer...' : '💾 Gem ændringer'}
+            </button>
+          </div>
+        </div>
+
+        {besked && (
+          <div className={`mb-5 px-4 py-3 rounded-xl text-sm border ${
+            besked.startsWith('✅')
+              ? 'bg-green-50 border-green-200 text-green-800'
+              : 'bg-red-50 border-red-200 text-red-700'
+          }`}>
+            {besked}
+          </div>
+        )}
+
+        {loader ? (
+          <div className="text-center py-16 text-gray-400">Henter data...</div>
+        ) : (
+          <div className="flex gap-5">
+
+            {/* Rolle-liste */}
+            <div className="w-52 shrink-0">
+              <p className="text-xs uppercase tracking-wider text-gray-400 font-semibold mb-3">Roller</p>
+              <div className="space-y-1">
+                {alleRoller.map(rolle => {
+                  const erSystemrolle = rolle === 'Owner' || rolle === 'Admin';
+                  const antalRet = erSystemrolle
+                    ? ALLE_RETTIGHEDER.length
+                    : (lokaleRet[rolle] || []).length;
+
+                  return (
+                    <button key={rolle} onClick={() => setValgtRolle(rolle)}
+                      className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                        valgtRolle === rolle
+                          ? 'bg-gray-800 text-white'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}>
+                      <div className="font-medium truncate">{rolle}</div>
+                      <div className={`text-xs mt-0.5 ${valgtRolle === rolle ? 'text-gray-300' : 'text-gray-400'}`}>
+                        {erSystemrolle ? '🔑 Alle rettigheder' : `${antalRet} rettighed${antalRet !== 1 ? 'er' : ''}`}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Rettigheds-oversigt */}
+            <div className="flex-1">
+              {!valgtRolle ? (
+                <div className="bg-white rounded-2xl p-10 border border-gray-200 text-center text-gray-400 text-sm">
+                  Vælg en rolle til venstre
+                </div>
+              ) : (() => {
+                const erSystemrolle = valgtRolle === 'Owner' || valgtRolle === 'Admin';
+                return (
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+
+                    {/* Rolle header */}
+                    <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                      <div>
+                        <h2 className="font-bold text-gray-900 text-lg">{valgtRolle}</h2>
+                        {erSystemrolle ? (
+                          <p className="text-xs text-purple-600 mt-0.5">
+                            🔑 Systemrolle — har automatisk alle rettigheder
+                          </p>
+                        ) : (
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {(lokaleRet[valgtRolle] || []).length} af {ALLE_RETTIGHEDER.length} rettigheder tildelt
+                          </p>
+                        )}
+                      </div>
+                      {!erSystemrolle && (
+                        <div className="flex gap-2">
+                          <button onClick={() => giveAlle(valgtRolle)}
+                            className="text-xs bg-green-50 text-green-700 border border-green-200 px-3 py-1.5 rounded-lg hover:bg-green-100">
+                            Vælg alle
+                          </button>
+                          <button onClick={() => fjernAlle(valgtRolle)}
+                            className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100">
+                            Fjern alle
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Rettigheder per gruppe */}
+                    <div className="divide-y divide-gray-50">
+                      {Object.entries(grupper).map(([gruppe, rettigheder]) => (
+                        <div key={gruppe} className="px-6 py-4">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+                            {gruppe}
+                          </p>
+                          <div className="space-y-2">
+                            {rettigheder.map(ret => {
+                              const tildelt = erSystemrolle || harRet(valgtRolle, ret.id);
+                              return (
+                                <label key={ret.id}
+                                  className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                                    tildelt
+                                      ? 'border-green-400 bg-green-50'
+                                      : 'border-gray-200 hover:border-gray-300'
+                                  } ${erSystemrolle ? 'opacity-60 cursor-default' : ''}`}>
+                                  <input
+                                    type="checkbox"
+                                    checked={tildelt}
+                                    disabled={erSystemrolle}
+                                    onChange={() => !erSystemrolle && toggleRet(valgtRolle, ret.id)}
+                                    className="accent-green-600"
+                                  />
+                                  <div>
+                                    <p className="text-sm text-gray-800 font-medium">{ret.label}</p>
+                                    <p className="text-xs text-gray-400 font-mono">{ret.id}</p>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}

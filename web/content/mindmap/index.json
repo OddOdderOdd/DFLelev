@@ -1,0 +1,671 @@
+{
+  "nodes": [
+    {
+      "id": "TM",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "Tillidsmandskredsen",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 1180,
+        "y": -61
+      }
+    },
+    {
+      "id": "STY",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "Styrelsen",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 880,
+        "y": -61
+      }
+    },
+    {
+      "id": "STUD",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "De studerende",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 878.8223896663079,
+        "y": 110.89451022604953
+      }
+    },
+    {
+      "id": "group_ledelse",
+      "type": "groupNode",
+      "draggable": true,
+      "data": {
+        "label": "📋 LEDELSE",
+        "description": "",
+        "borderColor": "#3b82f6",
+        "backgroundColor": "rgba(59, 130, 246, 0.08)",
+        "labelColor": "#1e40af"
+      },
+      "position": {
+        "x": 1289,
+        "y": 175
+      },
+      "style": {
+        "width": 456,
+        "height": 230,
+        "zIndex": -1
+      }
+    },
+    {
+      "id": "FOR",
+      "type": "default",
+      "parentNode": "group_ledelse",
+      "draggable": true,
+      "data": {
+        "label": "Forstanderen",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 160,
+        "y": 50
+      }
+    },
+    {
+      "id": "LED",
+      "type": "default",
+      "parentNode": "group_ledelse",
+      "draggable": true,
+      "data": {
+        "label": "Ledelsesgruppen",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 20,
+        "y": 143
+      }
+    },
+    {
+      "id": "LR",
+      "type": "default",
+      "parentNode": "group_ledelse",
+      "draggable": true,
+      "data": {
+        "label": "Lærerrådet",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 278,
+        "y": 154
+      }
+    },
+    {
+      "id": "group_folkestyret",
+      "type": "groupNode",
+      "draggable": true,
+      "data": {
+        "label": "🏛️ FOLKESTYRETS KERNE",
+        "description": "",
+        "borderColor": "#10b981",
+        "backgroundColor": "rgba(16, 185, 129, 0.08)",
+        "labelColor": "#059669"
+      },
+      "position": {
+        "x": 161,
+        "y": 161
+      },
+      "style": {
+        "width": 432.8744699907045,
+        "height": 240,
+        "zIndex": -1
+      }
+    },
+    {
+      "id": "SHB",
+      "type": "default",
+      "parentNode": "group_folkestyret",
+      "draggable": true,
+      "data": {
+        "label": "Studiehåndbogen",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 20,
+        "y": 72
+      }
+    },
+    {
+      "id": "SM",
+      "type": "default",
+      "parentNode": "group_folkestyret",
+      "draggable": true,
+      "data": {
+        "label": "STORMØDET",
+        "description": "Stormødet er folkestyrets centrale beslutningsorgan hvor alle studerende har stemmeret. Her træffes de vigtigste beslutninger om seminarets drift, økonomi og fremtid. Stormødet afholdes flere gange i løbet af året og er åbent for alle.",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 262.8744699907045,
+        "y": 103.32158000265588
+      }
+    },
+    {
+      "id": "FU",
+      "type": "default",
+      "parentNode": "group_folkestyret",
+      "draggable": true,
+      "data": {
+        "label": "Forretningsudvalget (FU)",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 23,
+        "y": 143
+      }
+    },
+    {
+      "id": "UND",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "Undergrundsudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 1073,
+        "y": 149
+      }
+    },
+    {
+      "id": "STU_K",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "Studiekredse",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 719,
+        "y": 215
+      }
+    },
+    {
+      "id": "AAM",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "Årgangsmøde",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 891,
+        "y": 313
+      }
+    },
+    {
+      "id": "DSR",
+      "type": "default",
+      "draggable": true,
+      "data": {
+        "label": "De Studerendes Råd (inaktiv)",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 1045,
+        "y": 286
+      }
+    },
+    {
+      "id": "group_ledelses_udvalg",
+      "type": "groupNode",
+      "draggable": true,
+      "data": {
+        "label": "🎓 LEDELSES-UDVALG",
+        "description": "",
+        "borderColor": "#f59e0b",
+        "backgroundColor": "rgba(245, 158, 11, 0.08)",
+        "labelColor": "#d97706"
+      },
+      "position": {
+        "x": 1010,
+        "y": 521
+      },
+      "style": {
+        "width": 405,
+        "height": 231,
+        "zIndex": -1
+      }
+    },
+    {
+      "id": "P_UDV",
+      "type": "default",
+      "parentNode": "group_ledelses_udvalg",
+      "draggable": true,
+      "data": {
+        "label": "Praktikudvalgene",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 20,
+        "y": 50
+      }
+    },
+    {
+      "id": "FAG",
+      "type": "default",
+      "parentNode": "group_ledelses_udvalg",
+      "draggable": true,
+      "data": {
+        "label": "Fagudvalgene",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 226,
+        "y": 59
+      }
+    },
+    {
+      "id": "LUU",
+      "type": "default",
+      "parentNode": "group_ledelses_udvalg",
+      "draggable": true,
+      "data": {
+        "label": "Læreruddannelsesudvalget (LUU)",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 73,
+        "y": 144
+      }
+    },
+    {
+      "id": "group_udvalgene",
+      "type": "groupNode",
+      "draggable": true,
+      "data": {
+        "label": "📊 UDVALGENE",
+        "description": "",
+        "borderColor": "#8b5cf6",
+        "backgroundColor": "rgba(139, 92, 246, 0.08)",
+        "labelColor": "#7c3aed"
+      },
+      "position": {
+        "x": 336,
+        "y": 509
+      },
+      "style": {
+        "width": 623,
+        "height": 420,
+        "zIndex": -1
+      }
+    },
+    {
+      "id": "BEV",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Bevillingsudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 20,
+        "y": 50
+      }
+    },
+    {
+      "id": "BUD",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Budgetudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 20,
+        "y": 120
+      }
+    },
+    {
+      "id": "KOST",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Kostudvalget",
+        "description": "Kostudvalget har ansvaret for kostordningen på seminaret. Udvalget arbejder med menu-planlægning, indkøb, og sikrer at alle studerendes behov bliver tilgodeset. De samarbejder tæt med køkkenpersonalet for at skabe gode og sunde måltider.",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 200,
+        "y": 50
+      }
+    },
+    {
+      "id": "UMU",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Undervisningsmiljøudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 200,
+        "y": 120
+      }
+    },
+    {
+      "id": "AAR",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Årsplansudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 20,
+        "y": 201
+      }
+    },
+    {
+      "id": "TIL",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Tilgængelighedsudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 209,
+        "y": 208
+      }
+    },
+    {
+      "id": "BAE",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Bæredygtighedsudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 30,
+        "y": 280
+      }
+    },
+    {
+      "id": "BIB",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Biblioteksudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 402,
+        "y": 46
+      }
+    },
+    {
+      "id": "INT",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Internationalt udvalg",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 426,
+        "y": 120
+      }
+    },
+    {
+      "id": "UDS",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Udstillingsudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 420,
+        "y": 191
+      }
+    },
+    {
+      "id": "TID",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Tidsskriftredaktionen",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 412,
+        "y": 263
+      }
+    },
+    {
+      "id": "F_UDV",
+      "type": "default",
+      "parentNode": "group_udvalgene",
+      "draggable": true,
+      "data": {
+        "label": "Fælestimeudvalget",
+        "description": "",
+        "borderColor": "",
+        "backgroundColor": "",
+        "labelColor": ""
+      },
+      "position": {
+        "x": 249,
+        "y": 334
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-TM-STY",
+      "source": "TM",
+      "target": "STY",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-STY-FOR",
+      "source": "STY",
+      "target": "FOR",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-FOR-LED",
+      "source": "FOR",
+      "target": "LED",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-FOR-LR",
+      "source": "FOR",
+      "target": "LR",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-LR-LUDV",
+      "source": "LR",
+      "target": "group_ledelses_udvalg",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-STY-FOLK",
+      "source": "STY",
+      "target": "group_folkestyret",
+      "animated": true,
+      "type": "default"
+    },
+    {
+      "id": "e-SHB-SM",
+      "source": "SHB",
+      "target": "SM",
+      "animated": true,
+      "type": "default"
+    },
+    {
+      "id": "e-FU-SM",
+      "source": "FU",
+      "target": "SM",
+      "animated": true,
+      "type": "default"
+    },
+    {
+      "id": "e-STUD-UND",
+      "source": "STUD",
+      "target": "UND",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-STUD-STU_K",
+      "source": "STUD",
+      "target": "STU_K",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-STUD-AAM",
+      "source": "STUD",
+      "target": "AAM",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-STUD-SM",
+      "source": "STUD",
+      "target": "SM",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-STUD-DSR",
+      "source": "STUD",
+      "target": "DSR",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-AAM-LUDV",
+      "source": "AAM",
+      "target": "group_ledelses_udvalg",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-AAM-UDV",
+      "source": "AAM",
+      "target": "group_udvalgene",
+      "animated": null,
+      "type": "default"
+    },
+    {
+      "id": "e-SM-UDV",
+      "source": "SM",
+      "target": "group_udvalgene",
+      "animated": null,
+      "type": "default"
+    }
+  ]
+}

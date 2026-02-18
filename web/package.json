@@ -1,0 +1,34 @@
+{
+  "name": "dflelev",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tinacms": "tinacms dev -c \"npm run dev\""
+  },
+  "dependencies": {
+    "@tinacms/cli": "^1.12.6",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "fuse.js": "^7.0.0",
+    "gray-matter": "^4.0.3",
+    "mammoth": "^1.11.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.0",
+    "react-router-dom": "^6.20.0",
+    "react-zoom-pan-pinch": "^3.3.0",
+    "reactflow": "^11.10.0",
+    "tinacms": "^1.6.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.0",
+    "vite": "^5.0.0"
+  }
+}

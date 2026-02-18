@@ -1,0 +1,240 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:/mnt/koala/DFLelev akiv/database/dflelev.db"
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// USERS & AUTH
+// ═══════════════════════════════════════════════════════════════════
+
+model User {
+  id                    String        @id // Format: "1770727441071_gy2kr"
+  navn                  String
+  telefon               String        @unique
+  kodeHash              String        // SHA-256 hash
+  aargang               String?
+  kollegie              String?
+  kollegieAndet         String?
+  note                  String?
+  aktiv                 Boolean       @default(false)
+  afventerGodkendelse   Boolean       @default(true)
+
+  // Timestamps
+  oprettet              DateTime      @default(now())
+  godkendtDato          DateTime?
+  sidstAktiv            DateTime?
+
+  // Relations
+  godkendtAf            User?         @relation("GodkendtAf", fields: [godkendtAfId], references: [id])
+  godkendtAfId          String?
+  godkendteKonti        User[]        @relation("GodkendtAf")
+
+  myndigheder           UserAuthority[]
+  sessions              Session[]
+  uploadedFiles         File[]        @relation("Uploader")
+  activityLogs          ActivityLog[]
+  redFlags              RedFlag[]
+  createdBoxes          Box[]         @relation("BoxCreator")
+
+  @@index([telefon])
+  @@index([aktiv])
+}
+
+model UserAuthority {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rolle     String   // "Admin", "Owner", "Undergrunden", "Fagudvalg", etc.
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, rolle])
+  @@index([rolle])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ROLLER (centraliseret rolle-system)
+// ═══════════════════════════════════════════════════════════════════
+
+model Rolle {
+  id            String    @id @default(cuid())
+  navn          String    @unique  // "Undergrunden", "Fagudvalg", etc. — systemroller "Admin"/"Owner" gemmes IKKE her
+
+  // Soft-delete
+  slettet       Boolean   @default(false)
+  slettetDato   DateTime?
+  slettetAfId   String?
+
+  // Sletning kræver bekræftelse fra ANDEN admin
+  sletAnmodetAf String?   // userId der anmodede om sletning
+  sletAnmodetAt DateTime?
+  sletBekraeftet Boolean  @default(false)
+
+  // Metadata
+  oprettet      DateTime  @default(now())
+  oprettetAfId  String?
+
+  @@index([slettet])
+}
+
+model Session {
+  token     String   @id // SHA-256 token
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  oprettet  DateTime @default(now())
+  udloeber  DateTime
+  ip        String?
+
+  @@index([userId])
+  @@index([udloeber])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  rolle       String   @unique // "Undergrunden", "Fagudvalg", etc.
+  rettigheder String   // JSON array: '["kp:log", "side:arkiv"]'
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  handling    String   // "LOGIN", "UPLOAD_FIL", "ADMIN_GODKENDT_KONTO", etc.
+  detaljer    String?  // JSON string
+  tidspunkt   DateTime @default(now())
+
+  @@index([userId, tidspunkt])
+  @@index([handling])
+}
+
+model RedFlag {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  grund       String
+  detaljer    String?  // JSON string
+  tidspunkt   DateTime @default(now())
+  resolved    Boolean  @default(false)
+  resolvedAt  DateTime?
+  resolvedBy  String?
+
+  @@index([userId, resolved])
+  @@index([tidspunkt])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FILE SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+
+model Box {
+  id          String   @id // Format: "online-test-1770723933440"
+  category    String   // "arkiv" eller "ressourcer"
+
+  titel       String
+  beskrivelse String?
+  farve       String   @default("#3b82f6")
+  billede     String?
+
+  // Alt er NAS storage nu - ingen storageType felt
+  fysiskSti   String   // Relativ til /mnt/koala/DFLelev akiv/[category]/
+
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   User?    @relation("BoxCreator", fields: [createdById], references: [id])
+  createdById String?
+
+  // Relations
+  files       File[]
+  folders     Folder[]
+
+  @@unique([category, id])
+  @@index([category])
+}
+
+model Folder {
+  id            String   @id @default(cuid())
+  boxId         String
+  box           Box      @relation(fields: [boxId], references: [id], onDelete: Cascade)
+
+  navn          String
+  titel         String?  // Display title (kan være anderledes end navn)
+  beskrivelse   String?
+
+  // Path tracking
+  parentId      String?
+  parent        Folder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Folder[] @relation("FolderHierarchy")
+
+  sti           String   // Relativ til box: "Undermappe/Dybere"
+
+  // Metadata
+  createdAt     DateTime @default(now())
+  createdBy     String?
+
+  // Relations
+  files         File[]
+
+  @@unique([boxId, sti])
+  @@index([boxId, parentId])
+}
+
+model File {
+  id            String   @id @default(cuid())
+  boxId         String
+  box           Box      @relation(fields: [boxId], references: [id], onDelete: Cascade)
+
+  folderId      String?
+  folder        Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  // File info
+  filnavn       String   // Physical filename: "1770727441071-Test fil.txt"
+  titel         String   // Display title: "Test fil"
+  beskrivelse   String?
+
+  // Path & metadata
+  sti           String   // Relativ til box: "Undermappe/fil.txt"
+  mimeType      String?
+  stoerrelse    Int?     // Bytes
+
+  // Tags (JSON array)
+  tags          String?  // '["vigtig", "matematik"]'
+
+  // Tracking
+  createdAt     DateTime @default(now())
+  uploadedBy    User?    @relation("Uploader", fields: [uploadedById], references: [id])
+  uploadedById  String?
+
+  @@unique([boxId, sti])
+  @@index([boxId, folderId])
+  @@index([uploadedById])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATISTICS (Optional - til fremtidig brug)
+// ═══════════════════════════════════════════════════════════════════
+
+model StorageStats {
+  id          String   @id @default(cuid())
+  category    String   @unique // "arkiv" eller "ressourcer"
+
+  totalBytes  BigInt   @default(0)
+  fileCount   Int      @default(0)
+  boxCount    Int      @default(0)
+
+  lastUpdated DateTime @updatedAt
+}

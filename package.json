@@ -1,0 +1,31 @@
+{
+  "name": "dflelev-monorepo",
+  "version": "2.0.0",
+  "description": "DFLelev - Moderniseret med SQLite + Prisma",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w web\"",
+    "start": "npm run start -w server",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:generate": "prisma generate",
+    "cleanup": "node scripts/cleanup.js"
+  },
+  "devDependencies": {
+    "@prisma/client": "^5.20.0",
+    "concurrently": "^8.2.2",
+    "prisma": "^5.20.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0",
+    "bcrypt": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
