@@ -182,7 +182,7 @@ router.get('/brugere', requireAdmin, async (req, res) => {
  */
 router.put('/bruger/:id', requireAdmin, async (req, res) => {
   try {
-    const { myndigheder, kollegie, aargang, note, aktiv, navn, email } = req.body;
+    const { myndigheder, kollegie, aargang, note, aktiv, navn, kaldenavn, telefon, email } = req.body;
 
     const user = await prisma.user.findUnique({
       where: { id: req.params.id }
@@ -190,6 +190,24 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ fejl: 'Bruger ikke fundet' });
+    }
+
+    const nextEmail = email !== undefined ? String(email).trim().toLowerCase() : user.email;
+    const nextKaldenavn = kaldenavn !== undefined ? String(kaldenavn).trim() : user.kaldenavn;
+
+    if (!nextKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn er påkrævet' });
+
+    const [emailOwner, kaldenavnOwner] = await Promise.all([
+      prisma.user.findUnique({ where: { email: nextEmail } }),
+      prisma.user.findUnique({ where: { kaldenavn: nextKaldenavn } })
+    ]);
+
+    if (emailOwner && emailOwner.id !== user.id) {
+      return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
+    }
+
+    if (kaldenavnOwner && kaldenavnOwner.id !== user.id) {
+      return res.status(409).json({ fejl: 'Dette kaldenavn er allerede taget' });
     }
 
     // Update user
@@ -201,7 +219,9 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
         note: note !== undefined ? note : user.note,
         aktiv: aktiv !== undefined ? aktiv : user.aktiv,
         navn: navn !== undefined ? navn : user.navn,
-        email: email !== undefined ? String(email).trim().toLowerCase() : user.email
+        kaldenavn: nextKaldenavn,
+        telefon: telefon !== undefined ? (telefon ? String(telefon).trim() : null) : user.telefon,
+        email: nextEmail
       }
     });
 

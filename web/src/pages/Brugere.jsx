@@ -10,7 +10,7 @@ export default function Brugere() {
   const { bruger: mig, token } = useAuth();
   const [brugere, setBrugere] = useState([]);
   const [redigerBruger, setRedigerBruger] = useState(null);
-  const [roller, setRoller] = useState(['Medlem', 'Næstforperson', 'Forperson', 'Admin', 'Owner']);
+  const [roller, setRoller] = useState(['Admin', 'Owner']);
 
   const erAdmin = mig?.myndigheder?.some(m => m.rolle === 'Admin' || m.rolle === 'Owner');
 
@@ -59,10 +59,10 @@ export default function Brugere() {
           {synligeBrugere.map(b => (
             <div key={b.id} className="bg-white border rounded-xl p-4 flex justify-between items-center">
               <div>
-                <p className="font-semibold">{b.navn}</p>
+                <p className="font-semibold">{b.kaldenavn || b.navn}</p>
                 <p className="text-xs text-gray-500">{b.email}</p>
               </div>
-              <button onClick={() => setRedigerBruger({ ...b, navn: b.navn || '', email: b.email || '', aargang: b.aargang || '', kollegie: b.kollegie || '', myndigheder: b.myndigheder || [] })} className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-sm">Rediger</button>
+              <button onClick={() => setRedigerBruger({ ...b, navn: b.navn || '', kaldenavn: b.kaldenavn || '', email: b.email || '', telefon: b.telefon || '', aargang: b.aargang || '', kollegie: b.kollegie || '', myndigheder: b.myndigheder || [] })} className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-sm">Rediger</button>
             </div>
           ))}
         </div>
@@ -73,7 +73,9 @@ export default function Brugere() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-3">
             <h2 className="text-xl font-bold">Rediger bruger</h2>
             <input value={redigerBruger.navn} onChange={e => setRedigerBruger(prev => ({ ...prev, navn: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Navn" />
+            <input value={redigerBruger.kaldenavn || ''} onChange={e => setRedigerBruger(prev => ({ ...prev, kaldenavn: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Kaldenavn" />
             <input value={redigerBruger.email} onChange={e => setRedigerBruger(prev => ({ ...prev, email: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="E-mail" />
+            <input value={redigerBruger.telefon || ''} onChange={e => setRedigerBruger(prev => ({ ...prev, telefon: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Telefon" />
             <select value={redigerBruger.aargang || ''} onChange={e => setRedigerBruger(prev => ({ ...prev, aargang: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm">
               <option value="">Vælg årgang</option>
               {Array.from({ length: 70 }).map((_, i) => {
