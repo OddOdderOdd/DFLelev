@@ -1,314 +1,259 @@
-# 🚀 DFLelev v2.0 - Komplet Migration Package
+# DFLelev v2.0 — AI Context README
 
-## 📦 Indhold
+> **Til AI-assistenter:** Læs hele dette dokument før du foreslår kodeændringer. Opdater denne fil ved ændringer: tilføj nye/slettede filer, endpoints, dataflow og dependencies. Changelog må kun indeholde den **nyeste** version — slet ældre versioner.
 
-Dette package indeholder alt du skal bruge til at migrere DFLelev fra v1.0 til v2.0.
+---
+
+## Stack
+
+- Node.js 18+, Express 4.18.2
+- SQLite 3 + Prisma ORM 5.20.0
+- React (Vite), Tailwind CSS
+- Monorepo (npm workspaces)
+
+---
+
+## Projekt Struktur
 
 ```
-outputs/
-├── README.md                    # Dette dokument
-├── MIGRATION_PLAN.md           # Detaljeret migration plan
-├── INSTALLATION.md             # Step-by-step installation guide
-├── PROJECT_ARCHITECTURE.md     # Opdateret arkitektur dokumentation
-│
-├── package.json                # Root package (monorepo)
+/home/oskar/DFLelev/
+├── package.json              # Root (workspaces: server, web)
+├── node_modules/             # Shared dependencies
+├── create-admin.cjs          # Script til at oprette første admin-bruger
 │
 ├── prisma/
-│   └── schema.prisma           # Database schema
+│   ├── schema.prisma         # Database schema
+│   └── migrations/
 │
-├── server/                     # Backend kode
+├── server/                   # Backend
 │   ├── package.json
-│   ├── index.js                # Main server
+│   ├── index.js              # Express app, health/NAS-endpoints
 │   ├── middleware/
-│   │   ├── auth.js            # Auth middleware
-│   │   └── upload.js          # Multer upload
+│   │   ├── auth.js           # Session-token middleware
+│   │   └── upload.js         # Multer config
 │   └── routes/
-│       ├── auth.js            # Auth endpoints
-│       ├── boxes.js           # Box management
-│       ├── files.js           # File operations
-│       └── admin.js           # Admin endpoints
+│       ├── auth.js           # /api/auth/*
+│       ├── boxes.js          # /api/boxes/*
+│       ├── files.js          # /api/files/*
+│       └── admin.js          # /api/admin/* + /api/admin/roller/*
 │
-└── scripts/
-    └── cleanup.js              # Cleanup utility
+└── web/                      # Frontend (React/Vite)
+    ├── package.json
+    ├── public/
+    └── src/
+        ├── context/
+        │   └── AuthContext.jsx
+        ├── utils/
+        │   └── fileService.js    # API-kald til filer (bruger 'dfl_token' fra localStorage)
+        └── pages/
+            ├── Arkiv.jsx
+            ├── Ressourcer.jsx
+            ├── BoxDetail.jsx
+            ├── OpretKonto.jsx
+            └── RettighederAdmin.jsx
 ```
 
 ---
 
-## 🎯 Hvad Er Nyt i v2.0?
+## Storage (NAS Only — ingen fallback)
 
-### ✨ Hovedforbedringer:
+```
+/mnt/koala/DFLelev akiv/
+├── database/
+│   └── dflelev.db
+└── Fysiske filer/
+    ├── Arkiv/
+    │   └── <box-id>/
+    │       ├── fil.pdf
+    │       └── Undermappe/
+    └── Ressourcer/
+        └── <box-id>/
+```
 
-1. **SQLite + Prisma ORM**
-   - ❌ 1000+ JSON filer → ✅ 1 database
-   - ⚡ 100x hurtigere queries
-   - 🔒 Ingen race conditions
-
-2. **Monorepo Struktur**
-   - ❌ 2x node_modules (600MB) → ✅ 1x shared (400MB)
-   - 📁 Organiseret mappestruktur
-   - 🔄 Shared dependencies
-
-3. **Kun NAS Storage**
-   - ❌ Dupliceret online storage → ✅ Kun NAS
-   - 💾 30% mindre disk forbrug
-   - 🎯 Simplere arkitektur
-
-4. **Modulær Backend**
-   - ❌ 1122 linjer i én fil → ✅ ~200 linjer per modul
-   - 🧩 Nem at vedligeholde
-   - 🔧 Nem at udvide
-
-5. **Full Auth System**
-   - ✅ Login/logout
-   - ✅ Sessions
-   - ✅ Permissions
-   - ✅ Activity logging
-   - ✅ Red flags (sikkerhed)
+- Ingen `.meta.json` sidecar-filer — alt metadata er i databasen.
+- Systemet kræver NAS. Hvis NAS ikke er mounted, fejler det.
 
 ---
 
-## 🚀 Quick Start
+## Database (SQLite + Prisma)
 
-### 1️⃣ Lav Backup
-```bash
-cp -r "/mnt/koala/DFLelev akiv" "/mnt/koala/DFLelev akiv.backup.$(date +%Y%m%d)"
-cp -r /home/oskar/DFLelev /home/oskar/DFLelev.backup.$(date +%Y%m%d)
-```
+**Placering:** `/mnt/koala/DFLelev akiv/database/dflelev.db`
 
-### 2️⃣ Flyt Filer
-```bash
-cd /home/oskar/DFLelev
+**Tabeller:**
 
-# Flyt nye filer fra Downloads
-cp -r ~/Downloads/outputs/* ./
+*Brugere & Auth:*
+- `User` — navn, telefon, kodeHash, aargang, kollegie, aktiv, godkendt
+- `UserAuthority` — bruger-roller (felt: `rolle`)
+- `Session` — login-tokens (token, userId, udloeber)
+- `Permission` — rolle-rettigheder som JSON (`{"Undergrunden": ["kp:log", ...]}`)
+- `ActivityLog` — hændelseslog (LOGIN, UPLOAD_FIL, osv.)
+- `RedFlag` — sikkerhedsadvarsler på brugere
 
-# Omdøb gamle mapper
-mv DFLelev_nas server_old
-mv DFLelev_Web web
-```
+*Filer:*
+- `Box` — kasser (id, category, titel, beskrivelse, farve, fysiskSti)
+- `Folder` — mapper (boxId, navn, sti, parentId)
+- `File` — filer (boxId, folderId, filnavn, sti, mimeType, stoerrelse, tags)
 
-### 3️⃣ Installer
-```bash
-cd /home/oskar/DFLelev
-npm install
-npm run db:push
-```
+*Roller:*
+- `Rolle` — rolle-katalog med soft-delete (slettet, sletAnmodetAf, sletBekraeftet, oprettetAfId)
 
-### 4️⃣ Start
-```bash
-npm run dev
-```
+*Statistik:*
+- `StorageStats` — storage-statistik per kategori
 
-**Se INSTALLATION.md for detaljeret guide!**
+**Hashing:** `sha256(kode + 'dfl_salt_2025')` — defineret i `auth.js` og `create-admin.cjs`.
+
+**Bruger ID-format:** `"timestamp_xxxxx"` (genereres i `create-admin.cjs`).
 
 ---
 
-## 📊 Før vs. Efter
+## API Endpoints
 
-### Før (v1.0):
-```
-DFLelev/
-├── DFLelev_nas/
-│   ├── node_modules/        # 200MB
-│   ├── server.js            # 1122 linjer
-│   └── public/
-│       ├── boxes/           # Online storage
-│       └── online/
-└── DFLelev_Web/
-    └── node_modules/        # 400MB
-```
+**Auth `/api/auth/*`**
+- `POST /opret` — opret bruger (afventer godkendelse)
+- `POST /login` — log ind
+- `POST /logout` — log ud
+- `GET /mig` — hent aktuel bruger
+- `GET /rettigheder` — hent alle rolle-rettigheder
+- `PUT /admin/rettigheder` — opdater rettigheder (admin)
 
-### Efter (v2.0):
-```
-DFLelev/
-├── node_modules/            # 400MB (shared)
-├── prisma/                  # Database schema
-├── server/                  # 200 linjer per fil
-│   ├── routes/
-│   └── middleware/
-└── web/
-```
+**Boxes `/api/boxes/*`**
+- `GET /?category=arkiv` — list boxes
+- `GET /:id` — hent én box
+- `POST /` — opret box
+- `PUT /:id` — opdater box
+- `DELETE /:id` — slet box
 
-**Gevinst:**
-- 💾 -200MB disk space
-- ⚡ 100x hurtigere queries
-- 🧹 Mere organiseret
-- 🔒 Sikre transaktioner
+**Files `/api/files/*`**
+- `POST /upload` — upload filer
+- `GET /sync/:boxId` — sync database med disk
+- `GET /:boxId/*` — download fil
+- `DELETE /:boxId/*` — slet fil/mappe
+- `POST /create-folder` — opret mappe
+- `PUT /rename` — omdøb fil/mappe
 
----
+**Admin `/api/admin/*`**
+- `GET /afventer` — ventende brugere
+- `POST /godkend/:id` — godkend bruger
+- `POST /afvis/:id` — afvis bruger
+- `GET /brugere` — alle brugere
+- `PUT /bruger/:id` — rediger bruger
+- `GET /log/:userId` — bruger-log
+- `GET /roedt-flag` — røde flag
+- `PUT /roedt-flag/:id/resolve` — løs rødt flag
+- `GET /stats` — system-statistik
 
-## 📚 Dokumentation
+**Rolle-management `/api/admin/roller/*`**
+- `GET /` — aktive roller (ekskl. Admin/Owner)
+- `GET /alle` — alle inkl. soft-slettede
+- `POST /sync` — sync fra UserAuthority
+- `POST /` — opret ny rolle
+- `PUT /:id/omdoeb` — omdøb + opdater overalt
+- `POST /:id/anmod-slet` — trin 1: anmod om sletning
+- `POST /:id/bekraeft-slet` — trin 2: ANDEN admin bekræfter
+- `POST /:id/annuller-slet` — annuller sletnings-anmodning
+- `POST /:id/gendan` — gendan soft-slettet rolle
 
-### 📖 Læs Disse Filer:
-
-1. **INSTALLATION.md** - Step-by-step installation (START HER!)
-2. **PROJECT_ARCHITECTURE.md** - Komplet system dokumentation
-3. **MIGRATION_PLAN.md** - Detaljeret migration strategi
-
-### 🔑 Vigtige Endpoints:
-
-**Auth:**
-- `POST /api/auth/opret` - Opret bruger
-- `POST /api/auth/login` - Log ind
-- `GET /api/auth/mig` - Hent bruger info
-
-**Boxes:**
-- `GET /api/boxes?category=arkiv` - List boxes
-- `POST /api/boxes` - Opret box
-- `PUT /api/boxes/:id` - Opdater box
-- `DELETE /api/boxes/:id` - Slet box
-
-**Files:**
-- `POST /api/files/upload` - Upload
-- `GET /api/files/sync/:boxId` - Sync
-- `GET /api/files/:boxId/*` - Download
-- `DELETE /api/files/:boxId/*` - Slet
-
-**Admin:**
-- `GET /api/admin/brugere` - List brugere
-- `POST /api/admin/godkend/:id` - Godkend bruger
-- `GET /api/admin/stats` - Statistik
+**System**
+- `GET /api/health`
+- `GET /api/nas-status`
 
 ---
 
-## 🔧 Nyttige Kommandoer
+## Vigtige Implementeringsdetaljer
+
+- `fileService.js` læser token fra `localStorage` under nøglen `'dfl_token'`
+- Admin/Owner (`intern: true`) ekskluderes fra myndigheder-dropdown i `OpretKonto.jsx`
+- `BoxDetail.jsx` bruger `/api/files/sync/:boxId` til fillister — ingen `.meta.json`
+- Rolle-sletning kræver to forskellige admins (to-admin-bekræftelsesflow)
+- `RettighederAdmin.jsx` har to faner: "🔑 Rettigheder" og "🏷️ Rolle-katalog"
+
+---
+
+## Kommandoer
 
 ```bash
-# Development
-npm run dev              # Start både backend og frontend
+# Start
+npm run dev                  # Start backend + frontend
 
 # Database
-npm run db:push          # Opret/opdater database
-npm run db:studio        # Åbn database admin
-npm run db:generate      # Generer Prisma client
-
-# Maintenance
-npm run cleanup          # Ryd temp filer
+npm run db:push              # Opret/opdater database (dev)
+npm run db:migrate           # Kør migration (prod)
+npm run db:studio            # Åbn Prisma Studio
+npm run db:generate          # Generer Prisma client
 
 # Workspaces
-npm run dev -w server    # Kun backend
-npm run dev -w web       # Kun frontend
+npm run dev -w server        # Kun backend
+npm run dev -w web           # Kun frontend
 ```
 
----
-
-## ⚠️ Ændringer der Påvirker Frontend
-
-### 🔄 Skal Opdateres:
-
-**1. Auth Context (`web/src/context/AuthContext.jsx`):**
-```javascript
-// Implementer fuldt - var ikke brugt før
-// Brug /api/auth/login og /api/auth/mig
-```
-
-**2. File Service (`web/src/utils/fileService.js`):**
-```javascript
-// Fjern storageType parameter
-// Alt er NAS nu
-uploadFiles(boxId, files) // Ikke storageType længere
-```
-
-**3. Box Pages (`Arkiv.jsx`, `Ressourcer.jsx`):**
-```javascript
-// Fjern storage type selector
-// Kun NAS option nu
-```
-
-**4. Box Detail (`BoxDetail.jsx`):**
-```javascript
-// Fjern .meta.json logik
-// Brug /api/files/sync/:boxId for at hente fil liste
-```
-
----
-
-## 🆘 Troubleshooting
-
-### Problem: "Cannot find module"
+**Første gang:**
 ```bash
-rm -rf node_modules */node_modules
+cd /home/oskar/DFLelev
 npm install
-```
-
-### Problem: "Port already in use"
-```bash
-lsof -i :3001
-kill -9 <PID>
-```
-
-### Problem: "Database locked"
-```bash
-pkill -f node
+sudo mkdir -p "/mnt/koala/DFLelev akiv/database"
+sudo mkdir -p "/mnt/koala/DFLelev akiv/Fysiske filer/Arkiv"
+sudo mkdir -p "/mnt/koala/DFLelev akiv/Fysiske filer/Ressourcer"
+sudo chown -R $USER:$USER "/mnt/koala/DFLelev akiv"
+npm run db:push
+node create-admin.cjs
 npm run dev
 ```
 
-### Problem: "Permission denied"
-```bash
-sudo chown -R oskar:oskar "/mnt/koala/DFLelev akiv"
-```
+**Standard login:** telefon `00000000`, kode `admin123`
 
 ---
 
-## 🎯 Næste Skridt
+## Troubleshooting
 
-Efter installation:
+| Problem | Løsning |
+|---|---|
+| `Cannot find module @prisma/client` | `npm run db:generate && npm install` |
+| `Database locked` | `pkill -f "node.*index.js" && npm run dev` |
+| `Port 3001 in use` | `lsof -i :3001` → `kill -9 <PID>` |
+| NAS ikke tilgængelig | `ls -la "/mnt/koala/DFLelev akiv"` → opret mapper, chown |
+| `Cannot find module` generelt | `rm -rf node_modules */node_modules && npm install` |
 
-1. ✅ Opdater frontend auth
-2. ✅ Test fil upload/download
-3. ✅ Opret første admin bruger
-4. ✅ Konfigurer permissions
-5. ✅ Slet gamle backups (når alt virker)
-
----
-
-## 📞 Support
-
-Hvis noget går galt:
-
-1. **Tjek logs:** Terminal output viser alle fejl
-2. **Tjek database:** `npm run db:studio`
-3. **Rollback:** Restore fra backup
-
-**Rollback kommando:**
+**Rollback:**
 ```bash
 pkill -f node
 rm -rf /home/oskar/DFLelev
 mv /home/oskar/DFLelev.backup.YYYYMMDD /home/oskar/DFLelev
-cd /home/oskar/DFLelev/DFLelev_nas
-node server.js
+cd /home/oskar/DFLelev/DFLelev_nas && node server.js
 ```
 
 ---
 
-## ✅ Checklist
+## Changelog — Nyeste Version
 
-- [ ] Backup lavet
-- [ ] Filer flyttet
-- [ ] Dependencies installeret
-- [ ] Database oprettet
-- [ ] System testet
-- [ ] Frontend opdateret
-- [ ] Første bruger oprettet
-- [ ] Alt virker! 🎉
+### Version 2.0.5 — 2026-02-18
+**Status: KLAR TIL BRUG**
 
----
+**web/src/pages/BoxDetail.jsx**
+- BUGFIX: Rettet JSX syntax fejl på linje 482-494 — to betingede blokke manglede åbningsbetingelse
+- Rettet til: `{!nasStatus.online && (` for NAS-offline-banner
 
-## 📝 Version Info
+**prisma/schema.prisma**
+- Tilføjet `Rolle`-model med soft-delete support (id, navn, slettet, slettetDato, sletAnmodetAf, sletBekraeftet, oprettet, oprettetAfId)
+- Kør `npm run db:push` efter opdatering
 
-**Version:** 2.0.0  
-**Dato:** 2026-02-16  
-**Type:** Major Update - Breaking Changes  
-**Migration:** Required  
+**server/routes/admin.js**
+- Tilføjet 9 nye rolle-management endpoints under `/api/admin/roller/*` (se API-sektion)
 
-**Stack:**
-- SQLite 3
-- Prisma ORM 5.20.0
-- Express 4.18.2
-- Node.js 18+
+**web/src/pages/RettighederAdmin.jsx**
+- Tilføjet "🏷️ Rolle-katalog"-fane: fuld CRUD, to-admin-sletningsflow, sync-knap, gendan
 
----
+**web/src/pages/OpretKonto.jsx**
+- Admin/Owner ekskluderes fra myndigheder-dropdown
+- Tomme sektioner filtreres automatisk væk
 
-## 🎉 Tak!
+**Arbejdsprocedure for denne version:**
+```bash
+# Flyt filer fra ~/Downloads/
+cp ~/Downloads/BoxDetail.jsx web/src/pages/BoxDetail.jsx
+cp ~/Downloads/OpretKonto.jsx web/src/pages/OpretKonto.jsx
+cp ~/Downloads/RettighederAdmin.jsx web/src/pages/RettighederAdmin.jsx
+cp ~/Downloads/admin.js server/routes/admin.js
+npm run db:push
+```
 
-God fornøjelse med det nye system! 🚀
+*Sidst opdateret: 2026-02-18 — Version 2.0.5*
