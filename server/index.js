@@ -26,11 +26,19 @@ const PORT = 3001;
 // STORAGE CONFIGURATION - FILESYSTEM ROOT VIA ENV
 // ═══════════════════════════════════════════════════════════════
 
-const NAS_ROOT = process.env.DFLELEV_STORAGE_ROOT || path.resolve(process.cwd(), 'storage');
+const REQUIRED_STORAGE_ROOT = '/mnt/koala/DFLelevFiller';
+const envStorageRoot = process.env.DFLELEV_STORAGE_ROOT || REQUIRED_STORAGE_ROOT;
+const NAS_ROOT = path.resolve(envStorageRoot);
 const FYSISKE_FILER = path.join(NAS_ROOT, 'Fysiske filer');
 const ARKIV_PATH = path.join(FYSISKE_FILER, 'Arkiv');
 const RESSOURCER_PATH = path.join(FYSISKE_FILER, 'Ressourcer');
 const DB_DIR = path.join(NAS_ROOT, 'database');
+
+if (NAS_ROOT !== REQUIRED_STORAGE_ROOT) {
+  console.error('❌ FEJL: DFLELEV_STORAGE_ROOT skal pege på /mnt/koala/DFLelevFiller');
+  console.error(`   Modtaget: ${NAS_ROOT}`);
+  process.exit(1);
+}
 
 // Check if storage path exists
 const IS_NAS_AVAILABLE = fs.existsSync(NAS_ROOT);

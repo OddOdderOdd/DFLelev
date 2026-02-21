@@ -1,13 +1,29 @@
 import express from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { prisma } from '../index.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Helper: Hash password
-function hashPassword(password) {
+const BCRYPT_ROUNDS = 12;
+
+function legacyHashPassword(password) {
   return crypto.createHash('sha256').update(password + 'dfl_salt_2025').digest('hex');
+}
+
+async function hashPassword(password) {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+async function verifyPassword(password, storedHash = '') {
+  if (!storedHash) return false;
+
+  if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$') || storedHash.startsWith('$2y$')) {
+    return bcrypt.compare(password, storedHash);
+  }
+
+  return legacyHashPassword(password) === storedHash;
 }
 
 // Helper: Generate token
@@ -75,32 +91,44 @@ async function raiseRedFlag(userId, grund, detaljer = {}) {
  */
 router.post('/opret', async (req, res) => {
   try {
-    const { navn, email, kode, gentag_kode, aargang, kollegie, kollegie_andet, myndigheder, note } = req.body;
+    const { navn, kaldenavn, email, telefon, kode, gentag_kode, aargang, kollegie, kollegie_andet, myndigheder, note } = req.body;
 
     // Validation
     if (!navn?.trim()) return res.status(400).json({ fejl: 'Navn er påkrævet' });
+    if (!kaldenavn?.trim()) return res.status(400).json({ fejl: 'Kaldenavn er påkrævet' });
     if (!email?.trim()) return res.status(400).json({ fejl: 'E-mail er påkrævet' });
     if (!isValidEmail(email)) return res.status(400).json({ fejl: 'Ugyldig e-mail' });
     if (!kode) return res.status(400).json({ fejl: 'Kode er påkrævet' });
     if (kode !== gentag_kode) return res.status(400).json({ fejl: 'Koderne matcher ikke' });
     if (kode.length < 6) return res.status(400).json({ fejl: 'Koden skal være mindst 6 tegn' });
 
-    // Check if phone already exists
-    const existing = await prisma.user.findUnique({
-      where: { email: normalizeEmail(email) }
-    });
+    const normalizedEmail = normalizeEmail(email);
+    const trimmedKaldenavn = String(kaldenavn).trim();
 
-    if (existing) {
+    const [existingEmail, existingKaldenavn] = await Promise.all([
+      prisma.user.findUnique({ where: { email: normalizedEmail } }),
+      prisma.user.findUnique({ where: { kaldenavn: trimmedKaldenavn } })
+    ]);
+
+    if (existingEmail) {
       return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
     }
+
+    if (existingKaldenavn) {
+      return res.status(409).json({ fejl: 'Dette kaldenavn er allerede taget' });
+    }
+
+    const kodeHash = await hashPassword(kode);
 
     // Create user
     const user = await prisma.user.create({
       data: {
         id: generateUserId(),
         navn: navn.trim(),
-        email: normalizeEmail(email),
-        kodeHash: hashPassword(kode),
+        kaldenavn: trimmedKaldenavn,
+        email: normalizedEmail,
+        telefon: telefon ? String(telefon).trim() : null,
+        kodeHash,
         aargang: aargang || '',
         kollegie: kollegie || '',
         kollegieAndet: kollegie_andet || '',
@@ -159,7 +187,8 @@ router.post('/login', async (req, res) => {
     }
 
     // Check password
-    if (user.kodeHash !== hashPassword(kode)) {
+    const passwordOk = await verifyPassword(kode, user.kodeHash);
+    if (!passwordOk) {
       // Check for brute force (5+ failed attempts in 15 minutes)
       const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
       const recentFails = await prisma.activityLog.count({
@@ -182,6 +211,13 @@ router.post('/login', async (req, res) => {
     // Check if active
     if (!user.aktiv) {
       return res.status(403).json({ fejl: 'Din konto er deaktiveret' });
+    }
+
+    if (!user.kodeHash.startsWith('$2')) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { kodeHash: await hashPassword(kode) }
+      });
     }
 
     // Create session
@@ -317,17 +353,68 @@ router.put('/admin/rettigheder', requireAdmin, async (req, res) => {
  * PUT /api/auth/profil-anmodning
  * Bruger anmoder om profilændring (sendes til verify/log)
  */
-router.put('/profil-anmodning', requireAuth, async (req, res) => {
+router.put('/profil', requireAuth, async (req, res) => {
   try {
-    const { tekst } = req.body;
-    if (!tekst?.trim()) return res.status(400).json({ fejl: 'Tom anmodning' });
+    const { navn, kaldenavn, email, telefon } = req.body;
 
-    await logActivity(req.user.id, 'PROFIL_AENDRING_ANMODNING', { tekst: tekst.trim() });
-    await raiseRedFlag(req.user.id, 'Profilændring kræver godkendelse', { tekst: tekst.trim(), type: 'profil-anmodning' });
+    const current = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!current) return res.status(404).json({ fejl: 'Bruger ikke fundet' });
 
-    res.json({ besked: 'Anmodning sendt' });
+    const nextEmail = email !== undefined ? normalizeEmail(email) : current.email;
+    const nextKaldenavn = kaldenavn !== undefined ? String(kaldenavn).trim() : current.kaldenavn;
+
+    if (!nextKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn er påkrævet' });
+    if (!nextEmail || !isValidEmail(nextEmail)) return res.status(400).json({ fejl: 'Ugyldig e-mail' });
+
+    const [existingEmail, existingKaldenavn] = await Promise.all([
+      prisma.user.findUnique({ where: { email: nextEmail } }),
+      prisma.user.findUnique({ where: { kaldenavn: nextKaldenavn } })
+    ]);
+
+    if (existingEmail && existingEmail.id !== req.user.id) {
+      return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
+    }
+
+    if (existingKaldenavn && existingKaldenavn.id !== req.user.id) {
+      return res.status(409).json({ fejl: 'Dette kaldenavn er allerede taget' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        navn: navn !== undefined ? String(navn).trim() : current.navn,
+        kaldenavn: nextKaldenavn,
+        email: nextEmail,
+        telefon: telefon !== undefined ? (telefon ? String(telefon).trim() : null) : current.telefon,
+      },
+      include: { myndigheder: true }
+    });
+
+    await logActivity(req.user.id, 'PROFIL_OPDATERET');
+
+    const { kodeHash, ...safeUser } = updated;
+    res.json({ besked: 'Profil opdateret', bruger: safeUser });
   } catch (error) {
-    console.error('Profile request error:', error);
+    console.error('Profile update error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+router.post('/slet-konto', requireAuth, async (req, res) => {
+  try {
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { sletKontoAnmodetAt: new Date() }
+    });
+
+    await logActivity(req.user.id, 'KONTO_SLETNING_ANMODET');
+    await raiseRedFlag(req.user.id, 'Konto-sletning anmodet', { type: 'konto-sletning' });
+
+    res.json({
+      besked: 'Din konto er markeret til sletning hurtigst muligt. Det kan tage op til 2 måneder pga. sommerferie.'
+    });
+  } catch (error) {
+    console.error('Delete account request error:', error);
     res.status(500).json({ fejl: 'Server fejl' });
   }
 });
@@ -343,11 +430,11 @@ router.put('/skift-kode', requireAuth, async (req, res) => {
     if (ny.length < 6) return res.status(400).json({ fejl: 'Ny kode er for kort' });
 
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-    if (!user || user.kodeHash !== hashPassword(nuvaerende)) {
+    if (!user || !(await verifyPassword(nuvaerende, user.kodeHash))) {
       return res.status(400).json({ fejl: 'Nuværende kode er forkert' });
     }
 
-    await prisma.user.update({ where: { id: req.user.id }, data: { kodeHash: hashPassword(ny) } });
+    await prisma.user.update({ where: { id: req.user.id }, data: { kodeHash: await hashPassword(ny) } });
     await logActivity(req.user.id, 'KODE_AENDRET');
     res.json({ besked: 'Kode ændret' });
   } catch (error) {
