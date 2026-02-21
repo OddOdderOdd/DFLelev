@@ -1,17 +1,12 @@
 export const SYSTEM_ROLE_PRIORITY = {
-  Owner: 5,
-  Admin: 4,
-  Forperson: 3,
-  'Næstforperson': 2,
-  Medlem: 1,
+  Owner: 3,
+  Admin: 2,
+  Rolle: 1,
 };
 
 export function normaliserRolle(rolle = '') {
   if (rolle === 'Owner' || rolle === 'Admin') return rolle;
-  const lower = rolle.toLowerCase();
-  if (lower.includes('næst') || lower.includes('naest')) return 'Næstforperson';
-  if (lower.includes('forperson') || lower.includes('chair')) return 'Forperson';
-  return 'Medlem';
+  return 'Rolle';
 }
 
 export function rolleNiveau(rolle = '') {

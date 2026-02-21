@@ -107,12 +107,35 @@ function BoxDetail() {
       const result = await syncBox(id);
       
       if (result.success) {
-        setItems(result.items || []);
+        const folderItems = (result.folders || []).map((folder) => {
+          const parentPath = folder.sti.includes('/') ? folder.sti.split('/').slice(0, -1).join('/') : '';
+          return {
+            id: folder.id || folder.sti,
+            type: 'folder',
+            name: folder.titel || folder.navn,
+            title: folder.titel || folder.navn,
+            path: folder.sti,
+            parentPath,
+            description: folder.beskrivelse || ''
+          };
+        });
+
+        const fileItems = (result.files || []).map((file) => {
+          const parentPath = file.sti.includes('/') ? file.sti.split('/').slice(0, -1).join('/') : '';
+          return {
+            id: file.id || file.sti,
+            type: 'file',
+            name: file.filnavn,
+            title: file.titel,
+            path: file.sti,
+            parentPath,
+            description: file.beskrivelse || '',
+            tags: file.tags ? JSON.parse(file.tags) : []
+          };
+        });
+
+        setItems([...folderItems, ...fileItems]);
         setLastSyncTime(new Date());
-        
-        if (!silent && result.orphansCleaned > 0) {
-          console.log(`🧹 Ryddet ${result.orphansCleaned} orphan metadata filer`);
-        }
       }
     } catch (error) {
       console.error('Sync fejl:', error);
@@ -175,12 +198,10 @@ function BoxDetail() {
         const batch = stagedFiles.slice(i, i + BATCH_SIZE);
 
         await uploadFiles(
-          category,
           id,
           batch.map(s => s.file),
           currentPath,
-          uploadMeta,
-          batch.map(s => s.relativePath)
+          uploadMeta
         );
 
         setUploadProgress({ current: Math.min(i + BATCH_SIZE, stagedFiles.length), total: stagedFiles.length });
@@ -210,9 +231,8 @@ function BoxDetail() {
 
     try {
       await createFolder(id, currentPath, newFolderName, {
-          title: folderMetadata.title || newFolderName,
-          description: folderMetadata.description,
-          createdBy: 'admin',
+          titel: folderMetadata.title || newFolderName,
+          beskrivelse: folderMetadata.description,
         }
       );
 

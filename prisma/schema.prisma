@@ -17,8 +17,10 @@ datasource db {
 model User {
   id                    String        @id // Format: "1770727441071_gy2kr"
   navn                  String
+  kaldenavn             String        @unique
   email                 String        @unique
-  kodeHash              String        // SHA-256 hash
+  telefon               String?
+  kodeHash              String        // BCrypt hash
   aargang               String?
   kollegie              String?
   kollegieAndet         String?
@@ -30,6 +32,7 @@ model User {
   oprettet              DateTime      @default(now())
   godkendtDato          DateTime?
   sidstAktiv            DateTime?
+  sletKontoAnmodetAt    DateTime?
 
   // Relations
   godkendtAf            User?         @relation("GodkendtAf", fields: [godkendtAfId], references: [id])
@@ -44,6 +47,7 @@ model User {
   createdBoxes          Box[]         @relation("BoxCreator")
 
   @@index([email])
+  @@index([kaldenavn])
   @@index([aktiv])
 }
 

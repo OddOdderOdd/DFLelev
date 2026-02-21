@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { hoejesteRolleNiveau, rolleNiveau } from '../utils/roleHierarchy';
+import { hoejesteRolleNiveau } from '../utils/roleHierarchy';
 
 const KOLLEGIER = ['', 'brantsminde', 'hugin', 'munin', 'toften', 'plantagen'];
 
@@ -10,7 +10,7 @@ export default function Brugere() {
   const { bruger: mig, token } = useAuth();
   const [brugere, setBrugere] = useState([]);
   const [redigerBruger, setRedigerBruger] = useState(null);
-  const [roller, setRoller] = useState(['Medlem', 'Næstforperson', 'Forperson', 'Admin', 'Owner']);
+  const [roller, setRoller] = useState(['Admin', 'Owner']);
 
   const erAdmin = mig?.myndigheder?.some(m => m.rolle === 'Admin' || m.rolle === 'Owner');
 
@@ -21,16 +21,19 @@ export default function Brugere() {
       if (svar.ok) {
         const data = await svar.json();
         setBrugere(data);
-        const alle = new Set(roller);
-        data.forEach(u => (u.myndigheder || []).forEach(m => alle.add(m.rolle)));
-        setRoller([...alle]);
+      }
+
+      const rollerSvar = await fetch('/api/auth/roller');
+      if (rollerSvar.ok) {
+        const roleData = await rollerSvar.json();
+        setRoller(roleData);
       }
     })();
   }, [erAdmin]);
 
-  const mitNiveau = hoejesteRolleNiveau(mig?.myndigheder || []);
   const synligeBrugere = brugere.filter(b => {
     const niveau = hoejesteRolleNiveau(b.myndigheder || []);
+    const mitNiveau = hoejesteRolleNiveau(mig?.myndigheder || []);
     return niveau < mitNiveau || b.id === mig.id;
   });
 
@@ -59,10 +62,10 @@ export default function Brugere() {
           {synligeBrugere.map(b => (
             <div key={b.id} className="bg-white border rounded-xl p-4 flex justify-between items-center">
               <div>
-                <p className="font-semibold">{b.navn}</p>
+                <p className="font-semibold">{b.kaldenavn || b.navn}</p>
                 <p className="text-xs text-gray-500">{b.email}</p>
               </div>
-              <button onClick={() => setRedigerBruger({ ...b, navn: b.navn || '', email: b.email || '', aargang: b.aargang || '', kollegie: b.kollegie || '', myndigheder: b.myndigheder || [] })} className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-sm">Rediger</button>
+              <button onClick={() => setRedigerBruger({ ...b, navn: b.navn || '', kaldenavn: b.kaldenavn || '', email: b.email || '', aargang: b.aargang || '', kollegie: b.kollegie || '', myndigheder: b.myndigheder || [] })} className="px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-sm">Rediger</button>
             </div>
           ))}
         </div>
@@ -73,6 +76,7 @@ export default function Brugere() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-3">
             <h2 className="text-xl font-bold">Rediger bruger</h2>
             <input value={redigerBruger.navn} onChange={e => setRedigerBruger(prev => ({ ...prev, navn: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Navn" />
+            <input value={redigerBruger.kaldenavn || ''} onChange={e => setRedigerBruger(prev => ({ ...prev, kaldenavn: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Kaldenavn" />
             <input value={redigerBruger.email} onChange={e => setRedigerBruger(prev => ({ ...prev, email: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="E-mail" />
             <select value={redigerBruger.aargang || ''} onChange={e => setRedigerBruger(prev => ({ ...prev, aargang: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm">
               <option value="">Vælg årgang</option>
@@ -90,7 +94,7 @@ export default function Brugere() {
               className="w-full border rounded-lg px-3 py-2 text-sm"
             >
               <option value="">Vælg rolle</option>
-              {roller.filter(r => rolleNiveau(r) < mitNiveau).map(r => <option key={r} value={r}>{r}</option>)}
+              {roller.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
             <div className="flex gap-2 pt-2">
               <button onClick={gem} className="flex-1 bg-green-700 text-white rounded-lg py-2 text-sm">Gem</button>

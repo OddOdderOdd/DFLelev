@@ -1,6 +1,6 @@
 // src/pages/OpretKonto.jsx
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { useAuth } from '../context/AuthContext';
@@ -9,95 +9,15 @@ import { useAuth } from '../context/AuthContext';
 const CONFIG_KEY = 'dfl_opret_config';
 
 const DEFAULT_CONFIG = {
-  aaargange: [
-    { id: 'a2025', label: '2025' }, { id: 'a2024', label: '2024' },
-    { id: 'a2023', label: '2023' }, { id: 'a2022', label: '2022' },
-    { id: 'a2021', label: '2021' }, { id: 'a2020', label: '2020' },
-    { id: 'a2019', label: '2019' }, { id: 'a2018', label: '2018' },
-    { id: 'a2017', label: '2017' }, { id: 'a2016', label: '2016' },
-    { id: 'a2015', label: '2015' }, { id: 'a2014', label: '2014' },
-    { id: 'a2013', label: '2013' }, { id: 'a2012', label: '2012' },
-    { id: 'a2011', label: '2011' }, { id: 'a2010', label: '2010' },
-    { id: 'a2009', label: '2009' }, { id: 'a2008', label: '2008' },
-    { id: 'a2007', label: '2007' }, { id: 'a2006', label: '2006' },
-    { id: 'a2005', label: '2005' }, { id: 'a2004', label: '2004' },
-    { id: 'a2003', label: '2003' }, { id: 'a2002', label: '2002' },
-    { id: 'a2001', label: '2001' }, { id: 'a2000', label: '2000' },
-    { id: 'a1999', label: '1999' }, { id: 'a1998', label: '1998' },
-    { id: 'a1997', label: '1997' }, { id: 'a1996', label: '1996' },
-    { id: 'a1995', label: '1995' }, { id: 'a1994', label: '1994' },
-    { id: 'a1993', label: '1993' }, { id: 'a1992', label: '1992' },
-    { id: 'a1991', label: '1991' }, { id: 'a1990', label: '1990' },
-    { id: 'a1989', label: '1989' }, { id: 'a1988', label: '1988' },
-    { id: 'a1987', label: '1987' }, { id: 'a1986', label: '1986' },
-    { id: 'a1985', label: '1985' }, { id: 'a1984', label: '1984' },
-    { id: 'a1983', label: '1983' }, { id: 'a1982', label: '1982' },
-    { id: 'a1981', label: '1981' }, { id: 'a1980', label: '1980' },
-    { id: 'a1979', label: '1979' }, { id: 'a1978', label: '1978' },
-    { id: 'a1977', label: '1977' }, { id: 'a1976', label: '1976' },
-    { id: 'a1975', label: '1975' }, { id: 'a1974', label: '1974' },
-    { id: 'a1973', label: '1973' }, { id: 'a1972', label: '1972' },
-    { id: 'a1971', label: '1971' }, { id: 'a1970', label: '1970' },
-    { id: 'a1969', label: '1969' }, { id: 'a1968', label: '1968' },
-    { id: 'a1967', label: '1967' }, { id: 'a1966', label: '1966' },
-    { id: 'a1965', label: '1965' }, { id: 'a1964', label: '1964' },
-    { id: 'a1963', label: '1963' }, { id: 'a1962', label: '1962' },
-    { id: 'a1961', label: '1961' }, { id: 'a1960', label: '1960' },
-    { id: 'a1959', label: '1959' }, { id: 'a1958', label: '1958' },
-    { id: 'a1957', label: '1957' }, { id: 'a1956', label: '1956' },
-    { id: 'a1955', label: '1955' }, { id: 'a1954', label: '1954' },
-    { id: 'a1953', label: '1953' }, { id: 'a1952', label: '1952' },
-    { id: 'a1951', label: '1951' }, { id: 'a1950', label: '1950' },
-    { id: 'a1949', label: '1949' },
-  ],
-  // Kollegier: erOverskrift = sektion-header, gruppe = id på parent-overskrift
-  kollegier: [
-    { id: 'k_andet',         label: 'Andet',                        harAndet: true },
-    { id: 'k_oensker_ikke',  label: 'Ønsker ikke at svare' },
-    { id: 'k_ikke_relevant', label: 'Ikke et skole-relevant bosted' },
-    { id: 'k_brantsminde',   label: 'Brantsminde' },
-    { id: 'g_hoved',         label: 'Hovedbygningen',               erOverskrift: true },
-    { id: 'k_hoved_stue',    label: 'Stue',                         gruppe: 'g_hoved' },
-    { id: 'k_hoved_1sal',    label: '1. sal',                       gruppe: 'g_hoved' },
-    { id: 'k_hoved_2sal',    label: '2. sal',                       gruppe: 'g_hoved' },
-    { id: 'k_HA',            label: '(HA) Himmerigsgården A' },
-    { id: 'k_HB',            label: '(HB) Himmerigsgården B' },
-    { id: 'k_hugin',         label: 'Hugin' },
-    { id: 'k_munin',         label: 'Munin' },
-    { id: 'g_aeble',         label: 'Æble Bakkegården',             erOverskrift: true },
-    { id: 'k_aeble',         label: 'Æblegården',                   gruppe: 'g_aeble' },
-    { id: 'k_bakkehuset',    label: 'Bakkehuset',                   gruppe: 'g_aeble' },
-    { id: 'k_toften',        label: 'Toften' },
-    { id: 'k_plantagen',     label: 'Plantagen' },
-    { id: 'k_boghandlen',    label: 'Boghandlen' },
-    { id: 'k_mindedal',      label: '(Mindedal)' },
-  ],
-  // Myndigheder: erOverskrift = sektion-header
+  aaargange: [],
+  kollegier: [],
   myndigheder: [
-    { id: 'm_admin',           label: 'Admin',                                intern: true },
-    { id: 'm_owner',           label: 'Owner',                                intern: true },
-    { id: 'g_udvalg',          label: 'Udvalgene',                            erOverskrift: true },
-    { id: 'm_udvalg_1',        label: 'Mulighed 1',                           gruppe: 'g_udvalg' },
-    { id: 'm_udvalg_2',        label: 'Mulighed 2',                           gruppe: 'g_udvalg' },
-    { id: 'm_undergrunden',    label: 'Undergrunden' },
-    { id: 'm_DSR',             label: 'Repræsentant for de studerendes råd' },
-    { id: 'g_studiekreds',     label: 'Studiekredsene',                       erOverskrift: true },
-    { id: 'm_studiekreds_1',   label: 'Mulighed 1',                           gruppe: 'g_studiekreds' },
-    { id: 'm_studiekreds_2',   label: 'Mulighed 2',                           gruppe: 'g_studiekreds' },
-    { id: 'g_ansatte',         label: 'Ansatte',                              erOverskrift: true },
-    { id: 'm_ansat_PR',        label: 'PR',                                   gruppe: 'g_ansatte' },
-    { id: 'm_ansat_ledelse',   label: 'Ledelse',                              gruppe: 'g_ansatte' },
-    { id: 'g_fagudvalg',       label: 'Fagudvalg',                            erOverskrift: true },
-    { id: 'm_fagudvalg_1',     label: 'Mulighed 1',                           gruppe: 'g_fagudvalg' },
-    { id: 'm_fagudvalg_2',     label: 'Mulighed 2',                           gruppe: 'g_fagudvalg' },
+    { id: 'm_admin', label: 'Admin', intern: true },
+    { id: 'm_owner', label: 'Owner', intern: true },
   ],
 };
 
 function loadConfig() {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
   return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 }
 
@@ -351,9 +271,10 @@ export default function OpretKonto() {
   const { bruger, token } = useAuth();
 
   const [config, setConfig] = useState(loadConfig);
+  const [rolleMuligheder, setRolleMuligheder] = useState([]);
 
   const [form, setForm] = useState({
-    navn: '', email: '', kode: '', gentag_kode: '',
+    navn: '', kaldenavn: '', email: '', kode: '', gentag_kode: '',
     aargang: '', kollegie: '', kollegie_andet: '',
     myndigheder: [], note: ''
   });
@@ -381,6 +302,14 @@ export default function OpretKonto() {
     }));
   }
 
+
+  useEffect(() => {
+    fetch('/api/auth/roller')
+      .then(r => r.ok ? r.json() : [])
+      .then((roller) => setRolleMuligheder((roller || []).filter((r) => r !== 'Admin' && r !== 'Owner')))
+      .catch(() => setRolleMuligheder([]));
+  }, []);
+
   // Byg kollegie dropdown fra config
   function bygDropdown() {
     const grupper = {};
@@ -393,23 +322,11 @@ export default function OpretKonto() {
     return { rod, grupper };
   }
 
-  // Byg myndigheds-sektioner fra config — Admin/Owner ekskluderes (intern: true)
+  // Myndigheder hentes fra backend-roller, så nye kasser vises alle steder
   function bygMyndigheder() {
-    const sektioner = [];
-    let cur = null;
-    config.myndigheder.forEach(m => {
-      // Skip systemroller — de håndteres udelukkende via admin-godkendelse
-      if (m.intern) return;
-      if (m.erOverskrift) {
-        cur = { titel: m.label, items: [] };
-        sektioner.push(cur);
-      } else {
-        if (!cur) { cur = { titel: null, items: [] }; sektioner.push(cur); }
-        cur.items.push(m);
-      }
-    });
-    // Fjern tomme sektioner (overskrifter uden items pga. intern-filter)
-    return sektioner.filter(s => s.items.length > 0);
+    return rolleMuligheder.length > 0
+      ? [{ titel: 'Myndigheder', items: rolleMuligheder.map((r) => ({ id: r, label: r })) }]
+      : [];
   }
 
   const { rod: kolRod, grupper: kolGrupper } = bygDropdown();
@@ -417,24 +334,42 @@ export default function OpretKonto() {
 
 
 
-  const [profilAnmodning, setProfilAnmodning] = useState('');
+  const [profilForm, setProfilForm] = useState({
+    navn: bruger?.navn || '',
+    kaldenavn: bruger?.kaldenavn || '',
+    email: bruger?.email || ''
+  });
   const [kodeForm, setKodeForm] = useState({ nuvaerende: '', ny: '', gentag: '' });
 
-  async function sendProfilAnmodning() {
-    if (!profilAnmodning.trim()) return;
-    const svar = await fetch('/api/auth/profil-anmodning', {
+  async function opdaterProfil() {
+    const svar = await fetch('/api/auth/profil', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
-      body: JSON.stringify({ tekst: profilAnmodning.trim() })
+      body: JSON.stringify(profilForm)
     });
-    if (svar.ok) {
-      setProfilAnmodning('');
-      setFejl('');
-      alert('Anmodning sendt til Verify.');
-    } else {
-      const data = await svar.json();
-      setFejl(data.fejl || 'Kunne ikke sende anmodning');
+
+    const data = await svar.json();
+    if (!svar.ok) {
+      setFejl(data.fejl || 'Kunne ikke opdatere profil');
+      return;
     }
+
+    setFejl('');
+    alert('Profil opdateret. Genindlæs siden for at se opdateret sessionsdata.');
+  }
+
+  async function anmodSletKonto() {
+    const ok = window.confirm('Er du sikker på at du vil anmode om sletning af din konto?');
+    if (!ok) return;
+
+    const svar = await fetch('/api/auth/slet-konto', {
+      method: 'POST',
+      headers: { 'x-auth-token': token }
+    });
+    const data = await svar.json();
+    if (!svar.ok) return setFejl(data.fejl || 'Kunne ikke sende slet-anmodning');
+
+    alert(data.besked);
   }
 
   async function skiftKode() {
@@ -455,6 +390,7 @@ export default function OpretKonto() {
     e.preventDefault();
     setFejl('');
     if (!form.navn.trim())    return setFejl('Angiv venligst dit fulde navn');
+    if (!form.kaldenavn.trim()) return setFejl('Angiv venligst et kaldenavn');
     if (!form.email.trim()) return setFejl('Angiv venligst din e-mailadresse');
     if (!form.aargang)        return setFejl('Vælg venligst din årgang');
     if (!form.kollegie)       return setFejl('Vælg venligst dit kollegie');
@@ -469,6 +405,7 @@ export default function OpretKonto() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           navn: form.navn.trim(),
+          kaldenavn: form.kaldenavn.trim(),
           email: form.email.trim(),
           kode: form.kode,
           gentag_kode: form.gentag_kode,
@@ -498,6 +435,7 @@ export default function OpretKonto() {
           <h1 className="text-2xl font-bold mb-4">Se profil</h1>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <p><strong>Navn:</strong> {bruger.navn}</p>
+            <p><strong>Kaldenavn:</strong> {bruger.kaldenavn || '—'}</p>
             <p><strong>E-mail:</strong> {bruger.email}</p>
             <p><strong>Årgang:</strong> {bruger.aargang || '—'}</p>
             <p><strong>Kollegie:</strong> {bruger.kollegie || '—'}</p>
@@ -511,9 +449,15 @@ export default function OpretKonto() {
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-6">
-          <h2 className="font-semibold mb-2">Rediger profil (anmodning)</h2>
-          <textarea value={profilAnmodning} onChange={e => setProfilAnmodning(e.target.value)} rows={4} className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Skriv hvad du vil ændre: navn, årgang, myndighed osv." />
-          <button onClick={sendProfilAnmodning} className="mt-3 bg-green-700 text-white px-4 py-2 rounded-xl text-sm">Send anmodning</button>
+          <h2 className="font-semibold mb-2">Rediger profil</h2>
+          <p className="text-xs text-gray-500 mb-3">Kaldenavnet er navnet andre ser dig som. Det behøver ikke være dit rigtige navn.</p>
+          <div className="grid gap-2">
+            <input value={profilForm.navn} onChange={e => setProfilForm(prev => ({ ...prev, navn: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Navn" />
+            <input value={profilForm.kaldenavn} onChange={e => setProfilForm(prev => ({ ...prev, kaldenavn: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Kaldenavn" />
+            <input type="email" value={profilForm.email} onChange={e => setProfilForm(prev => ({ ...prev, email: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="E-mail" />
+          </div>
+          <button onClick={opdaterProfil} className="mt-3 bg-green-700 text-white px-4 py-2 rounded-xl text-sm">Gem profil</button>
+          <button onClick={anmodSletKonto} className="mt-3 ml-2 bg-red-100 text-red-700 px-4 py-2 rounded-xl text-sm">Slet konto</button>
         </div>
 
         <div className="bg-white border border-gray-200 rounded-2xl p-6">
@@ -576,6 +520,17 @@ export default function OpretKonto() {
               <input type="text" value={form.navn} onChange={e => sætFelt('navn', e.target.value)}
                 placeholder="Fornavn Efternavn"
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+            </div>
+
+            {/* Kaldenavn */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Kaldenavn <span className="text-red-500">*</span>
+              </label>
+              <input type="text" value={form.kaldenavn} onChange={e => sætFelt('kaldenavn', e.target.value)}
+                placeholder="Navnet andre ser"
+                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+              <p className="text-xs text-gray-500 mt-1">Kaldenavnet er det navn andre brugere kommer til at se dig som.</p>
             </div>
 
             {/* E-mail */}
