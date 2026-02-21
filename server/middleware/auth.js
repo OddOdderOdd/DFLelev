@@ -1,4 +1,9 @@
+import crypto from 'crypto';
 import { prisma } from '../index.js';
+
+function anonymizeIp(ip = '') {
+  return crypto.createHash('sha256').update(String(ip)).digest('hex').slice(0, 16);
+}
 
 /**
  * Middleware: Kræver authentication
@@ -67,7 +72,7 @@ export async function requireAdmin(req, res, next) {
             grund: 'Forsøgte at tilgå admin uden tilladelse',
             detaljer: JSON.stringify({ 
               endpoint: req.path,
-              ip: req.ip 
+              ipHash: anonymizeIp(req.ip) 
             })
           }
         });
