@@ -23,28 +23,28 @@ const app = express();
 const PORT = 3001;
 
 // ═══════════════════════════════════════════════════════════════
-// STORAGE CONFIGURATION - NAS ONLY (NO FALLBACK)
+// STORAGE CONFIGURATION - FILESYSTEM ROOT VIA ENV
 // ═══════════════════════════════════════════════════════════════
 
-const NAS_ROOT = '/mnt/koala/DFLelev akiv';
+const NAS_ROOT = process.env.DFLELEV_STORAGE_ROOT || path.resolve(process.cwd(), 'storage');
 const FYSISKE_FILER = path.join(NAS_ROOT, 'Fysiske filer');
 const ARKIV_PATH = path.join(FYSISKE_FILER, 'Arkiv');
 const RESSOURCER_PATH = path.join(FYSISKE_FILER, 'Ressourcer');
 const DB_DIR = path.join(NAS_ROOT, 'database');
 
-// Check if NAS is available
+// Check if storage path exists
 const IS_NAS_AVAILABLE = fs.existsSync(NAS_ROOT);
 
 if (!IS_NAS_AVAILABLE) {
-  console.error('❌ FEJL: NAS ikke tilgængelig!');
+  console.error('❌ FEJL: Storage path ikke tilgængelig!');
   console.error(`   Forventet sti: ${NAS_ROOT}`);
-  console.error('   Systemet kan ikke køre uden NAS.');
+  console.error('   Systemet kan ikke køre uden en gyldig storage-sti.');
   console.error('\n💡 Løsninger:');
-  console.error('   1. Mount NAS på: /mnt/koala/DFLelev akiv');
+  console.error(`   1. Sæt DFLELEV_STORAGE_ROOT korrekt (nu: ${NAS_ROOT})`);
   console.error('   2. Opret placeholder mappe:');
-  console.error('      mkdir -p "/mnt/koala/DFLelev akiv/database"');
-  console.error('      mkdir -p "/mnt/koala/DFLelev akiv/Fysiske filer/Arkiv"');
-  console.error('      mkdir -p "/mnt/koala/DFLelev akiv/Fysiske filer/Ressourcer"');
+  console.error('      mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/database"');
+  console.error('      mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/Fysiske filer/Arkiv"');
+  console.error('      mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/Fysiske filer/Ressourcer"');
   process.exit(1);
 }
 
@@ -55,7 +55,7 @@ export { NAS_ROOT, ARKIV_PATH, RESSOURCER_PATH, IS_NAS_AVAILABLE };
 console.log('📁 Tjekker mappestruktur...');
 
 const requiredDirs = [
-  { path: NAS_ROOT, name: 'NAS root' },
+  { path: NAS_ROOT, name: 'Storage root' },
   { path: DB_DIR, name: 'Database' },
   { path: FYSISKE_FILER, name: 'Fysiske filer' },
   { path: ARKIV_PATH, name: 'Arkiv' },
@@ -88,7 +88,7 @@ app.get('/api/health', async (req, res) => {
     res.json({ 
       status: 'ok', 
       database: 'connected',
-      storage: 'NAS',
+      storage: 'filesystem',
       nasRoot: NAS_ROOT,
       timestamp: new Date().toISOString()
     });
@@ -101,7 +101,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// NAS Status endpoint
+// Storage status endpoint
 app.get('/api/nas-status', (req, res) => {
   res.json({
     online: true,
@@ -128,7 +128,7 @@ process.on('SIGTERM', async () => {
 // Start server
 app.listen(PORT, () => {
   console.log(`\n🚀 DFLelev Server v2.0 kører på http://localhost:${PORT}`);
-  console.log(`💾 Storage: NAS`);
+  console.log(`💾 Storage: Filesystem`);
   console.log(`📂 Root: ${NAS_ROOT}`);
   console.log(`   📁 Fysiske filer: ${FYSISKE_FILER}`);
   console.log(`   📦 Arkiv: ${ARKIV_PATH}`);

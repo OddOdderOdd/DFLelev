@@ -182,7 +182,7 @@ router.get('/brugere', requireAdmin, async (req, res) => {
  */
 router.put('/bruger/:id', requireAdmin, async (req, res) => {
   try {
-    const { myndigheder, kollegie, aargang, note, aktiv } = req.body;
+    const { myndigheder, kollegie, aargang, note, aktiv, navn, email } = req.body;
 
     const user = await prisma.user.findUnique({
       where: { id: req.params.id }
@@ -199,7 +199,9 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
         kollegie: kollegie !== undefined ? kollegie : user.kollegie,
         aargang: aargang !== undefined ? aargang : user.aargang,
         note: note !== undefined ? note : user.note,
-        aktiv: aktiv !== undefined ? aktiv : user.aktiv
+        aktiv: aktiv !== undefined ? aktiv : user.aktiv,
+        navn: navn !== undefined ? navn : user.navn,
+        email: email !== undefined ? String(email).trim().toLowerCase() : user.email
       }
     });
 
@@ -265,7 +267,7 @@ router.get('/roedt-flag', requireAdmin, async (req, res) => {
       where: { resolved: false },
       include: {
         user: {
-          select: { id: true, navn: true, telefon: true }
+          select: { id: true, navn: true, email: true }
         }
       },
       orderBy: { tidspunkt: 'desc' }
@@ -312,6 +314,33 @@ router.put('/roedt-flag/:id/resolve', requireAdmin, async (req, res) => {
   }
 });
 
+
+
+/**
+ * GET /api/admin/log/roller
+ * Log for brugere med mindst én rolle/myndighed
+ */
+router.get('/log/roller', requireAdmin, async (req, res) => {
+  try {
+    const rolleBrugere = await prisma.userAuthority.findMany({
+      select: { userId: true },
+      distinct: ['userId']
+    });
+    const ids = rolleBrugere.map(r => r.userId);
+
+    const logs = await prisma.activityLog.findMany({
+      where: { userId: { in: ids } },
+      include: { user: { select: { navn: true } } },
+      orderBy: { tidspunkt: 'desc' },
+      take: 200,
+    });
+
+    res.json(logs);
+  } catch (error) {
+    console.error('Get role logs error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
 /**
  * GET /api/admin/stats
  * Hent system statistik

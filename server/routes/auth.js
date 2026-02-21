@@ -21,6 +21,18 @@ function generateUserId() {
   return `${Date.now()}_${suffix}`;
 }
 
+function normalizeEmail(email = '') {
+  return String(email).trim().toLowerCase();
+}
+
+function isValidEmail(email = '') {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function anonymizeIp(ip = '') {
+  return crypto.createHash('sha256').update(String(ip)).digest('hex').slice(0, 16);
+}
+
 // Helper: Log activity
 async function logActivity(userId, handling, detaljer = {}) {
   try {
@@ -63,22 +75,23 @@ async function raiseRedFlag(userId, grund, detaljer = {}) {
  */
 router.post('/opret', async (req, res) => {
   try {
-    const { navn, telefon, kode, gentag_kode, aargang, kollegie, kollegie_andet, myndigheder, note } = req.body;
+    const { navn, email, kode, gentag_kode, aargang, kollegie, kollegie_andet, myndigheder, note } = req.body;
 
     // Validation
     if (!navn?.trim()) return res.status(400).json({ fejl: 'Navn er påkrævet' });
-    if (!telefon?.trim()) return res.status(400).json({ fejl: 'Telefonnummer er påkrævet' });
+    if (!email?.trim()) return res.status(400).json({ fejl: 'E-mail er påkrævet' });
+    if (!isValidEmail(email)) return res.status(400).json({ fejl: 'Ugyldig e-mail' });
     if (!kode) return res.status(400).json({ fejl: 'Kode er påkrævet' });
     if (kode !== gentag_kode) return res.status(400).json({ fejl: 'Koderne matcher ikke' });
     if (kode.length < 6) return res.status(400).json({ fejl: 'Koden skal være mindst 6 tegn' });
 
     // Check if phone already exists
     const existing = await prisma.user.findUnique({
-      where: { telefon: telefon.trim() }
+      where: { email: normalizeEmail(email) }
     });
 
     if (existing) {
-      return res.status(409).json({ fejl: 'Dette telefonnummer er allerede registreret' });
+      return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
     }
 
     // Create user
@@ -86,7 +99,7 @@ router.post('/opret', async (req, res) => {
       data: {
         id: generateUserId(),
         navn: navn.trim(),
-        telefon: telefon.trim(),
+        email: normalizeEmail(email),
         kodeHash: hashPassword(kode),
         aargang: aargang || '',
         kollegie: kollegie || '',
@@ -105,7 +118,7 @@ router.post('/opret', async (req, res) => {
 
     await logActivity(user.id, 'KONTO_ANSOEGNING', { 
       navn: user.navn, 
-      telefon: user.telefon 
+      email: user.email 
     });
 
     res.status(201).json({ 
@@ -124,20 +137,20 @@ router.post('/opret', async (req, res) => {
  */
 router.post('/login', async (req, res) => {
   try {
-    const { telefon, kode } = req.body;
+    const { email, kode } = req.body;
 
-    if (!telefon || !kode) {
-      return res.status(400).json({ fejl: 'Telefonnummer og kode er påkrævet' });
+    if (!email || !kode) {
+      return res.status(400).json({ fejl: 'E-mail og kode er påkrævet' });
     }
 
     // Find user
     const user = await prisma.user.findUnique({
-      where: { telefon: telefon.trim() },
+      where: { email: normalizeEmail(email) },
       include: { myndigheder: true }
     });
 
     if (!user) {
-      return res.status(401).json({ fejl: 'Forkert telefonnummer eller kode' });
+      return res.status(401).json({ fejl: 'Forkert e-mail eller kode' });
     }
 
     // Check if pending
@@ -157,13 +170,13 @@ router.post('/login', async (req, res) => {
         }
       });
 
-      await logActivity(user.id, 'MISLYKKET_LOGIN', { ip: req.ip });
+      await logActivity(user.id, 'MISLYKKET_LOGIN', { ipHash: anonymizeIp(req.ip) });
 
       if (recentFails >= 4) {
-        await raiseRedFlag(user.id, '5+ mislykkede loginforsøg på 15 min', { ip: req.ip });
+        await raiseRedFlag(user.id, '5+ mislykkede loginforsøg på 15 min', { ipHash: anonymizeIp(req.ip) });
       }
 
-      return res.status(401).json({ fejl: 'Forkert telefonnummer eller kode' });
+      return res.status(401).json({ fejl: 'Forkert e-mail eller kode' });
     }
 
     // Check if active
@@ -178,7 +191,7 @@ router.post('/login', async (req, res) => {
         token,
         userId: user.id,
         udloeber: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-        ip: req.ip
+        ip: anonymizeIp(req.ip)
       }
     });
 
@@ -188,7 +201,7 @@ router.post('/login', async (req, res) => {
       data: { sidstAktiv: new Date() }
     });
 
-    await logActivity(user.id, 'LOGIN', { ip: req.ip });
+    await logActivity(user.id, 'LOGIN', { ipHash: anonymizeIp(req.ip) });
 
     // Return user without password
     const { kodeHash, ...safeUser } = user;
@@ -294,6 +307,51 @@ router.put('/admin/rettigheder', requireAdmin, async (req, res) => {
     res.json({ besked: 'Rettigheder gemt', data });
   } catch (error) {
     console.error('Update permissions error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+
+
+/**
+ * PUT /api/auth/profil-anmodning
+ * Bruger anmoder om profilændring (sendes til verify/log)
+ */
+router.put('/profil-anmodning', requireAuth, async (req, res) => {
+  try {
+    const { tekst } = req.body;
+    if (!tekst?.trim()) return res.status(400).json({ fejl: 'Tom anmodning' });
+
+    await logActivity(req.user.id, 'PROFIL_AENDRING_ANMODNING', { tekst: tekst.trim() });
+    await raiseRedFlag(req.user.id, 'Profilændring kræver godkendelse', { tekst: tekst.trim(), type: 'profil-anmodning' });
+
+    res.json({ besked: 'Anmodning sendt' });
+  } catch (error) {
+    console.error('Profile request error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+/**
+ * PUT /api/auth/skift-kode
+ */
+router.put('/skift-kode', requireAuth, async (req, res) => {
+  try {
+    const { nuvaerende, ny, gentag } = req.body;
+    if (!nuvaerende || !ny || !gentag) return res.status(400).json({ fejl: 'Udfyld alle felter' });
+    if (ny !== gentag) return res.status(400).json({ fejl: 'Nye koder matcher ikke' });
+    if (ny.length < 6) return res.status(400).json({ fejl: 'Ny kode er for kort' });
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user || user.kodeHash !== hashPassword(nuvaerende)) {
+      return res.status(400).json({ fejl: 'Nuværende kode er forkert' });
+    }
+
+    await prisma.user.update({ where: { id: req.user.id }, data: { kodeHash: hashPassword(ny) } });
+    await logActivity(req.user.id, 'KODE_AENDRET');
+    res.json({ besked: 'Kode ændret' });
+  } catch (error) {
+    console.error('Change password error:', error);
     res.status(500).json({ fejl: 'Server fejl' });
   }
 });

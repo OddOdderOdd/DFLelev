@@ -55,10 +55,10 @@
 
 ---
 
-## Storage (NAS Only — ingen fallback)
+## Storage (filesystem via env)
 
 ```
-/mnt/koala/DFLelev akiv/
+${DFLELEV_STORAGE_ROOT:-./storage}/
 ├── database/
 │   └── dflelev.db
 └── Fysiske filer/
@@ -71,18 +71,18 @@
 ```
 
 - Ingen `.meta.json` sidecar-filer — alt metadata er i databasen.
-- Systemet kræver NAS. Hvis NAS ikke er mounted, fejler det.
+- Systemet kræver en gyldig storage-sti. Sæt `DFLELEV_STORAGE_ROOT` eller brug standard `./storage`.
 
 ---
 
 ## Database (SQLite + Prisma)
 
-**Placering:** `/mnt/koala/DFLelev akiv/database/dflelev.db`
+**Placering:** `${DFLELEV_STORAGE_ROOT:-./storage}/database/dflelev.db`
 
 **Tabeller:**
 
 *Brugere & Auth:*
-- `User` — navn, telefon, kodeHash, aargang, kollegie, aktiv, godkendt
+- `User` — navn, email, kodeHash, aargang, kollegie, aktiv, godkendt
 - `UserAuthority` — bruger-roller (felt: `rolle`)
 - `Session` — login-tokens (token, userId, udloeber)
 - `Permission` — rolle-rettigheder som JSON (`{"Undergrunden": ["kp:log", ...]}`)
@@ -190,16 +190,16 @@ npm run dev -w web           # Kun frontend
 ```bash
 cd /home/oskar/DFLelev
 npm install
-sudo mkdir -p "/mnt/koala/DFLelev akiv/database"
-sudo mkdir -p "/mnt/koala/DFLelev akiv/Fysiske filer/Arkiv"
-sudo mkdir -p "/mnt/koala/DFLelev akiv/Fysiske filer/Ressourcer"
+sudo mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/database"
+sudo mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/Fysiske filer/Arkiv"
+sudo mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/Fysiske filer/Ressourcer"
 sudo chown -R $USER:$USER "/mnt/koala/DFLelev akiv"
 npm run db:push
 node create-admin.cjs
 npm run dev
 ```
 
-**Standard login:** telefon `00000000`, kode `admin123`
+**Standard login:** email `admin@dflelev.local`, kode `admin123`
 
 ---
 
@@ -210,7 +210,7 @@ npm run dev
 | `Cannot find module @prisma/client` | `npm run db:generate && npm install` |
 | `Database locked` | `pkill -f "node.*index.js" && npm run dev` |
 | `Port 3001 in use` | `lsof -i :3001` → `kill -9 <PID>` |
-| NAS ikke tilgængelig | `ls -la "/mnt/koala/DFLelev akiv"` → opret mapper, chown |
+| Storage-sti ikke tilgængelig | `ls -la "/mnt/koala/DFLelev akiv"` → opret mapper, chown |
 | `Cannot find module` generelt | `rm -rf node_modules */node_modules && npm install` |
 
 **Rollback:**

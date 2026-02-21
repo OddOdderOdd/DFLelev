@@ -1,9 +1,9 @@
 /**
- * create-admin.cjs  ← SCHEMA-KORREKT VERSION
+ * create-admin.cjs
  * DFLelev - Opret admin bruger
  *
  * Kør: node create-admin.cjs
- * Kør med egne værdier: node create-admin.cjs --telefon=12345678 --navn="Dit Navn" --kode=hemmelig
+ * Kør med egne værdier: node create-admin.cjs --email=admin@example.com --navn="Dit Navn" --kode=hemmelig
  */
 
 const { PrismaClient } = require('@prisma/client');
@@ -11,7 +11,6 @@ const crypto = require('crypto');
 
 const prisma = new PrismaClient();
 
-// --- CLI args ---
 const args = Object.fromEntries(
   process.argv.slice(2)
     .filter(a => a.startsWith('--'))
@@ -22,127 +21,98 @@ const args = Object.fromEntries(
 );
 
 const CONFIG = {
-  telefon:  args.telefon  || '00000000',
+  email:    (args.email || 'admin@dflelev.local').trim().toLowerCase(),
   kode:     args.kode     || 'admin123',
   navn:     args.navn     || 'System Administrator',
   aargang:  args.aargang  || '2020',
   kollegie: args.kollegie || 'DFL',
 };
 
-// --- ID generator (matcher projektets format: "1770727441071_gy2kr") ---
 function genererBrugerId() {
   const timestamp = Date.now();
   const random = crypto.randomBytes(4).toString('hex').slice(0, 5);
   return `${timestamp}_${random}`;
 }
 
-// --- Kode hash (SHA-256, matcher schema kommentar) ---
 function hashKode(kode) {
-  return crypto.createHash('sha256').update(kode).digest('hex');
+  return crypto.createHash('sha256').update(kode + 'dfl_salt_2025').digest('hex');
 }
 
-// --- Hoved ---
 async function main() {
   console.log('\n🔧 DFLelev - Opret Admin Bruger\n');
   console.log('Konfiguration:');
-  console.log(`  Telefon:  ${CONFIG.telefon}`);
+  console.log(`  E-mail:   ${CONFIG.email}`);
   console.log(`  Navn:     ${CONFIG.navn}`);
   console.log(`  Aargang:  ${CONFIG.aargang}`);
   console.log(`  Kollegie: ${CONFIG.kollegie}`);
   console.log('');
 
-  // 1. Tjek om bruger allerede findes
   let bruger = await prisma.user.findUnique({
-    where: { telefon: CONFIG.telefon },
+    where: { email: CONFIG.email },
     include: { myndigheder: true },
   });
 
   if (bruger) {
-    console.log(`⚠️  Bruger med telefon ${CONFIG.telefon} findes allerede.`);
-    console.log(`   Navn: ${bruger.navn}`);
-    console.log(`   ID:   ${bruger.id}`);
+    console.log(`⚠️  Bruger med e-mail ${CONFIG.email} findes allerede.`);
 
-    // Sørg for at brugeren er aktiv og godkendt
     if (!bruger.aktiv || bruger.afventerGodkendelse) {
       await prisma.user.update({
         where: { id: bruger.id },
         data: {
-          aktiv:               true,
+          aktiv: true,
           afventerGodkendelse: false,
-          godkendtDato:        new Date(),
+          godkendtDato: new Date(),
         },
       });
       console.log('   ✅ Bruger aktiveret og godkendt');
     }
 
-    // Tjek admin rolle (felt hedder "rolle" ikke "myndighed")
     const harAdmin = bruger.myndigheder.some(m => m.rolle === 'Admin');
     if (!harAdmin) {
-      console.log('   Brugeren har ikke Admin rolle - tilføjer...');
       await prisma.userAuthority.create({
-        data: {
-          userId: bruger.id,
-          rolle:  'Admin',
-        },
+        data: { userId: bruger.id, rolle: 'Admin' },
       });
       console.log('   ✅ Admin rolle tilføjet!');
     } else {
-      console.log('   ✅ Brugeren er allerede Admin. Intet at gøre.');
+      console.log('   ✅ Brugeren er allerede Admin.');
     }
-
   } else {
-    // 2. Opret ny bruger
-    const id       = genererBrugerId();
+    const id = genererBrugerId();
     const kodeHash = hashKode(CONFIG.kode);
-
-    console.log(`🔑 Genereret ID: ${id}`);
-    console.log('🔐 Kode hashet (SHA-256)');
 
     bruger = await prisma.user.create({
       data: {
-        id:                  id,
-        navn:                CONFIG.navn,
-        telefon:             CONFIG.telefon,
-        kodeHash:            kodeHash,
-        aargang:             CONFIG.aargang,
-        kollegie:            CONFIG.kollegie,
-        aktiv:               true,
+        id,
+        navn: CONFIG.navn,
+        email: CONFIG.email,
+        kodeHash,
+        aargang: CONFIG.aargang,
+        kollegie: CONFIG.kollegie,
+        aktiv: true,
         afventerGodkendelse: false,
-        godkendtDato:        new Date(),
+        godkendtDato: new Date(),
       },
     });
 
-    console.log(`✅ Bruger oprettet! ID: ${bruger.id}`);
-
-    // 3. Tilføj Admin rolle
     await prisma.userAuthority.create({
-      data: {
-        userId: bruger.id,
-        rolle:  'Admin',
-      },
+      data: { userId: bruger.id, rolle: 'Admin' },
     });
-    console.log('✅ Admin rolle tilføjet!');
 
-    // 4. Log aktivitet
     await prisma.activityLog.create({
       data: {
-        userId:   bruger.id,
+        userId: bruger.id,
         handling: 'OPRET_ADMIN',
         detaljer: JSON.stringify({ kilde: 'create-admin script' }),
       },
     });
-    console.log('✅ Aktivitet logget');
+
+    console.log('✅ Admin bruger oprettet!');
   }
 
-  // --- Resultat ---
   console.log('\n🎉 Admin bruger klar!\n');
-  console.log('╔══════════════════════════════╗');
-  console.log('║       LOGIN OPLYSNINGER      ║');
-  console.log('╠══════════════════════════════╣');
-  console.log(`║  Telefon:  ${CONFIG.telefon.padEnd(18)}║`);
-  console.log(`║  Kode:     ${CONFIG.kode.padEnd(18)}║`);
-  console.log(`║  ID:       ${bruger.id.slice(0, 18).padEnd(18)}║`);
-  console.log('╚══════════════════════════════╝\n');
+  console.log(`E-mail: ${CONFIG.email}`);
+  console.log(`Kode:  ${CONFIG.kode}`);
+  console.log(`ID:    ${bruger.id}`);
 }
 
 main()

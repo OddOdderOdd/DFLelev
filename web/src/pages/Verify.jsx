@@ -167,7 +167,7 @@ export default function Verify() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h2 className="font-bold text-gray-900 text-lg">{ans.navn}</h2>
-                    <p className="text-gray-500 text-sm">{ans.telefon}</p>
+                    <p className="text-gray-500 text-sm">{ans.email}</p>
                   </div>
                   <span className="text-xs text-gray-400">
                     {new Date(ans.oprettet).toLocaleString('da-DK', {

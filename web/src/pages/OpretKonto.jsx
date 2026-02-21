@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Config storage nøgle ─────────────────────────────────────────────────────
 const CONFIG_KEY = 'dfl_opret_config';
@@ -347,11 +348,12 @@ function AdminKonfig({ config, onChange }) {
 export default function OpretKonto() {
   const navigate = useNavigate();
   const { isAdmin } = useAdmin(); // Bruger den eksisterende Admin-knap i navigationen
+  const { bruger, token } = useAuth();
 
   const [config, setConfig] = useState(loadConfig);
 
   const [form, setForm] = useState({
-    navn: '', telefon: '', kode: '', gentag_kode: '',
+    navn: '', email: '', kode: '', gentag_kode: '',
     aargang: '', kollegie: '', kollegie_andet: '',
     myndigheder: [], note: ''
   });
@@ -413,11 +415,47 @@ export default function OpretKonto() {
   const { rod: kolRod, grupper: kolGrupper } = bygDropdown();
   const myndSektioner = bygMyndigheder();
 
+
+
+  const [profilAnmodning, setProfilAnmodning] = useState('');
+  const [kodeForm, setKodeForm] = useState({ nuvaerende: '', ny: '', gentag: '' });
+
+  async function sendProfilAnmodning() {
+    if (!profilAnmodning.trim()) return;
+    const svar = await fetch('/api/auth/profil-anmodning', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify({ tekst: profilAnmodning.trim() })
+    });
+    if (svar.ok) {
+      setProfilAnmodning('');
+      setFejl('');
+      alert('Anmodning sendt til Verify.');
+    } else {
+      const data = await svar.json();
+      setFejl(data.fejl || 'Kunne ikke sende anmodning');
+    }
+  }
+
+  async function skiftKode() {
+    if (kodeForm.ny.length < 6) return setFejl('Ny kode skal være mindst 6 tegn');
+    if (kodeForm.ny !== kodeForm.gentag) return setFejl('Nye koder matcher ikke');
+    const svar = await fetch('/api/auth/skift-kode', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify(kodeForm)
+    });
+    const data = await svar.json();
+    if (!svar.ok) return setFejl(data.fejl || 'Kunne ikke ændre kode');
+    setKodeForm({ nuvaerende: '', ny: '', gentag: '' });
+    alert('Kode ændret.');
+  }
+
   async function indsend(e) {
     e.preventDefault();
     setFejl('');
     if (!form.navn.trim())    return setFejl('Angiv venligst dit fulde navn');
-    if (!form.telefon.trim()) return setFejl('Angiv venligst dit telefonnummer');
+    if (!form.email.trim()) return setFejl('Angiv venligst din e-mailadresse');
     if (!form.aargang)        return setFejl('Vælg venligst din årgang');
     if (!form.kollegie)       return setFejl('Vælg venligst dit kollegie');
     if (!form.kode)           return setFejl('Vælg venligst en kode');
@@ -431,7 +469,7 @@ export default function OpretKonto() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           navn: form.navn.trim(),
-          telefon: form.telefon.trim(),
+          email: form.email.trim(),
           kode: form.kode,
           gentag_kode: form.gentag_kode,
           aargang: form.aargang,
@@ -450,6 +488,48 @@ export default function OpretKonto() {
       setSender(false);
     }
   }
+
+
+  if (bruger) return (
+    <div className="min-h-screen bg-gray-50 py-12 px-4">
+      <div className="max-w-2xl mx-auto space-y-5">
+        <button onClick={() => navigate('/kontrolpanel')} className="text-gray-500 hover:text-gray-700 text-sm">← Tilbage</button>
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h1 className="text-2xl font-bold mb-4">Se profil</h1>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <p><strong>Navn:</strong> {bruger.navn}</p>
+            <p><strong>E-mail:</strong> {bruger.email}</p>
+            <p><strong>Årgang:</strong> {bruger.aargang || '—'}</p>
+            <p><strong>Kollegie:</strong> {bruger.kollegie || '—'}</p>
+          </div>
+          <div className="mt-4">
+            <p className="text-xs text-gray-500 mb-1">Roller/Myndigheder</p>
+            <div className="flex flex-wrap gap-2">
+              {(bruger.myndigheder || []).map((m, i) => <span key={i} className="text-xs bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">{m.rolle}</span>)}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h2 className="font-semibold mb-2">Rediger profil (anmodning)</h2>
+          <textarea value={profilAnmodning} onChange={e => setProfilAnmodning(e.target.value)} rows={4} className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Skriv hvad du vil ændre: navn, årgang, myndighed osv." />
+          <button onClick={sendProfilAnmodning} className="mt-3 bg-green-700 text-white px-4 py-2 rounded-xl text-sm">Send anmodning</button>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <h2 className="font-semibold mb-2">Ændr kode</h2>
+          <div className="grid gap-2">
+            <input type="password" value={kodeForm.nuvaerende} onChange={e => setKodeForm(prev => ({ ...prev, nuvaerende: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Nuværende kode" />
+            <input type="password" value={kodeForm.ny} onChange={e => setKodeForm(prev => ({ ...prev, ny: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Ny kode" />
+            <input type="password" value={kodeForm.gentag} onChange={e => setKodeForm(prev => ({ ...prev, gentag: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Gentag ny kode" />
+          </div>
+          <button onClick={skiftKode} className="mt-3 bg-gray-900 text-white px-4 py-2 rounded-xl text-sm">Gem ny kode</button>
+        </div>
+
+        {fejl && <div className="bg-red-50 text-red-700 border border-red-200 px-4 py-3 rounded-xl text-sm">{fejl}</div>}
+      </div>
+    </div>
+  );
 
   if (succes) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -498,13 +578,13 @@ export default function OpretKonto() {
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
             </div>
 
-            {/* Telefon */}
+            {/* E-mail */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Telefonnummer <span className="text-red-500">*</span>
+                E-mail <span className="text-red-500">*</span>
               </label>
-              <input type="tel" value={form.telefon} onChange={e => sætFelt('telefon', e.target.value)}
-                placeholder="f.eks. 12345678"
+              <input type="email" value={form.email} onChange={e => sætFelt('email', e.target.value)}
+                placeholder="navn@eksempel.dk"
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
             </div>
 

@@ -8,7 +8,7 @@ export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const [telefon, setTelefon] = useState('');
+  const [email, setEmail] = useState('');
   const [kode, setKode] = useState('');
   const [visKode, setVisKode] = useState(false);
   const [fejl, setFejl] = useState('');
@@ -23,7 +23,7 @@ export default function Login() {
       const svar = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefon: telefon.trim(), kode })
+        body: JSON.stringify({ email: email.trim(), kode })
       });
 
       const data = await svar.json();
@@ -53,24 +53,24 @@ export default function Login() {
             ← Tilbage
           </button>
           <h1 className="text-3xl font-bold text-gray-900">Login</h1>
-          <p className="text-gray-500 text-sm mt-1">Log ind med dit telefonnummer og kode</p>
+          <p className="text-gray-500 text-sm mt-1">Log ind med dit e-mailadresse og kode</p>
         </div>
 
         <form
           onSubmit={indsend}
           className="bg-white rounded-2xl p-8 shadow-sm border border-gray-200 space-y-5"
         >
-          {/* Telefon */}
+          {/* E-mail */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Telefonnummer
+              E-mail
             </label>
             <input
-              type="tel"
-              value={telefon}
-              onChange={e => { setTelefon(e.target.value); setFejl(''); }}
-              placeholder="f.eks. 12345678"
-              autoComplete="tel"
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setFejl(''); }}
+              placeholder="navn@eksempel.dk"
+              autoComplete="email"
               className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>

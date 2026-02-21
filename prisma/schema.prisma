@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:/mnt/koala/DFLelev akiv/database/dflelev.db"
+  url      = env("DATABASE_URL")
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -17,7 +17,7 @@ datasource db {
 model User {
   id                    String        @id // Format: "1770727441071_gy2kr"
   navn                  String
-  telefon               String        @unique
+  email                 String        @unique
   kodeHash              String        // SHA-256 hash
   aargang               String?
   kollegie              String?
@@ -43,7 +43,7 @@ model User {
   redFlags              RedFlag[]
   createdBoxes          Box[]         @relation("BoxCreator")
 
-  @@index([telefon])
+  @@index([email])
   @@index([aktiv])
 }
 
@@ -150,7 +150,7 @@ model Box {
   billede     String?
 
   // Alt er NAS storage nu - ingen storageType felt
-  fysiskSti   String   // Relativ til /mnt/koala/DFLelev akiv/[category]/
+  fysiskSti   String   // Relativ til storage root/[category]/
 
   // Metadata
   createdAt   DateTime @default(now())
