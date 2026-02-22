@@ -2,21 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const CONFIG_KEY = 'dfl_opret_config';
-
 const RETTIGHEDS_TRAE = [
-  {
-    id: 'home',
-    label: 'Hjem',
-    rights: ['side:home'],
-    children: []
-  },
-  {
-    id: 'kontrolpanel',
-    label: 'Kontrolpanel',
-    rights: ['side:kontrolpanel', 'kp:log', 'kp:verify', 'kp:brugere', 'kp:rettigheder'],
-    children: []
-  },
+  { id: 'home', label: 'Hjem', rights: ['side:home'], children: [] },
+  { id: 'kontrolpanel', label: 'Kontrolpanel', rights: ['side:kontrolpanel', 'kp:log', 'kp:verify', 'kp:brugere', 'kp:rettigheder'], children: [] },
   {
     id: 'mindmap',
     label: 'Mindmap',
@@ -27,138 +15,203 @@ const RETTIGHEDS_TRAE = [
       { id: 'mindmap:fu', label: 'FU', rights: ['mindmap:group:edit', 'mindmap:group:link', 'mindmap:group:meta', 'mindmap:group:delete'] }
     ]
   },
-  {
-    id: 'skolekort',
-    label: 'Skolekort',
-    rights: ['side:skolekort'],
-    children: []
-  },
+  { id: 'skolekort', label: 'Skolekort', rights: ['side:skolekort'], children: [] },
   {
     id: 'ressourcer',
     label: 'Ressourcer',
     rights: ['side:ressourcer', 'ressourcer:edit'],
-    children: [
-      { id: 'ressourcer:mapper', label: 'Mapper & undermapper', rights: ['ressourcer:folder:edit', 'ressourcer:folder:create', 'ressourcer:folder:delete'] }
-    ]
+    children: [{ id: 'ressourcer:mapper', label: 'Mapper & undermapper', rights: ['ressourcer:folder:edit', 'ressourcer:folder:create', 'ressourcer:folder:delete'] }]
   },
   {
     id: 'arkiv',
     label: 'Arkiv',
     rights: ['side:arkiv', 'arkiv:edit'],
-    children: [
-      { id: 'arkiv:mapper', label: 'Mapper & undermapper', rights: ['arkiv:folder:edit', 'arkiv:folder:create', 'arkiv:folder:delete'] }
-    ]
+    children: [{ id: 'arkiv:mapper', label: 'Mapper & undermapper', rights: ['arkiv:folder:edit', 'arkiv:folder:create', 'arkiv:folder:delete'] }]
   }
 ];
 
-function loadConfig() {
-  return { aaargange: [], kollegier: [], myndigheder: [{ id: 'm_admin', label: 'Admin', intern: true }, { id: 'm_owner', label: 'Owner', intern: true }] };
+const DEFAULT_META = { kind: 'authority', parentRole: null, canManageUnderRole: false };
+
+function normalizePermissions(data = {}) {
+  const normalized = {};
+  Object.entries(data).forEach(([rolle, config]) => {
+    if (Array.isArray(config)) {
+      normalized[rolle] = { rights: config, __meta: { ...DEFAULT_META } };
+      return;
+    }
+    normalized[rolle] = {
+      rights: config?.rights || [],
+      __meta: { ...DEFAULT_META, ...(config?.__meta || {}) }
+    };
+  });
+  return normalized;
+}
+
+function IconButton({ icon, title, onClick, className = '' }) {
+  return <button title={title} onClick={onClick} className={`px-2 py-1 rounded border bg-white hover:bg-gray-50 ${className}`}>{icon}</button>;
 }
 
 export default function RettighederAdmin() {
   const navigate = useNavigate();
   const { bruger, erAdmin, token } = useAuth();
-  const [fane, setFane] = useState('myndigheder');
-  const [config, setConfig] = useState(loadConfig());
+  const [permissions, setPermissions] = useState({});
   const [roller, setRoller] = useState([]);
   const [valgtRolle, setValgtRolle] = useState('');
-  const [permissions, setPermissions] = useState({});
-  const [brugere, setBrugere] = useState([]);
-  const [soeg, setSoeg] = useState('');
-  const [nyMyndighed, setNyMyndighed] = useState('');
+  const [nyKasseNavn, setNyKasseNavn] = useState('');
+  const [nyMyndighedNavn, setNyMyndighedNavn] = useState('');
   const [aabenNode, setAabenNode] = useState(null);
 
-  const aktivConfig = permissions[valgtRolle] || { rights: [], ansvarlige: [] };
+  const rollerMap = useMemo(() => {
+    const map = {};
+    roller.forEach((rolle) => { map[rolle] = true; });
+    return map;
+  }, [roller]);
+
+  const kasser = useMemo(() => {
+    const fromPermissions = Object.entries(permissions)
+      .filter(([, cfg]) => cfg?.__meta?.kind === 'box')
+      .map(([rolle]) => rolle)
+      .filter((r) => rollerMap[r]);
+    return [...new Set(fromPermissions)].sort((a, b) => a.localeCompare(b, 'da'));
+  }, [permissions, rollerMap]);
+
+  const frieMyndigheder = useMemo(() => {
+    const explicit = Object.entries(permissions)
+      .filter(([, cfg]) => cfg?.__meta?.kind === 'authority')
+      .map(([rolle]) => rolle)
+      .filter((r) => rollerMap[r]);
+    const system = ['Admin', 'Owner'];
+    const rest = roller.filter((r) => !system.includes(r) && !kasser.includes(r) && !Object.values(permissions).some((cfg) => cfg?.__meta?.parentRole === r));
+    return [...new Set([...system, ...explicit, ...rest])].sort((a, b) => a.localeCompare(b, 'da'));
+  }, [permissions, roller, kasser]);
+
+  const underRoller = useMemo(() => {
+    const result = {};
+    Object.entries(permissions).forEach(([rolle, cfg]) => {
+      const parent = cfg?.__meta?.parentRole;
+      if (!parent || !rollerMap[rolle]) return;
+      if (!result[parent]) result[parent] = [];
+      result[parent].push(rolle);
+    });
+    Object.keys(result).forEach((k) => result[k].sort((a, b) => a.localeCompare(b, 'da')));
+    return result;
+  }, [permissions, rollerMap]);
+
+  const aktivConfig = permissions[valgtRolle] || { rights: [], __meta: { ...DEFAULT_META } };
+  const parentConfig = aktivConfig.__meta.parentRole ? permissions[aktivConfig.__meta.parentRole] : null;
+
+  const synligeRettigheder = useMemo(() => {
+    if (!aktivConfig.__meta.parentRole) return RETTIGHEDS_TRAE;
+    const parentRights = new Set(parentConfig?.rights || []);
+    return RETTIGHEDS_TRAE
+      .map((node) => {
+        const nodeRights = node.rights.filter((r) => parentRights.has(r));
+        const children = (node.children || []).map((child) => ({ ...child, rights: child.rights.filter((r) => parentRights.has(r)) })).filter((child) => child.rights.length > 0);
+        if (nodeRights.length === 0 && children.length === 0) return null;
+        return { ...node, rights: nodeRights, children };
+      })
+      .filter(Boolean);
+  }, [aktivConfig.__meta.parentRole, parentConfig]);
 
   useEffect(() => {
     if (!erAdmin) return;
-
     (async () => {
-      const [rollerSvar, rettighederSvar, brugereSvar] = await Promise.all([
+      const [rollerSvar, rettighederSvar] = await Promise.all([
         fetch('/api/auth/roller'),
-        fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } }),
-        fetch('/api/admin/brugere', { headers: { 'x-auth-token': token } })
+        fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } })
       ]);
 
-      if (rollerSvar.ok) {
-        const data = await rollerSvar.json();
-        setRoller(data);
-        if (!valgtRolle && data.length > 0) setValgtRolle(data[0]);
-      }
-
+      if (rollerSvar.ok) setRoller(await rollerSvar.json());
       if (rettighederSvar.ok) {
         const data = await rettighederSvar.json();
-        const normalized = {};
-        Object.entries(data).forEach(([rolle, rett]) => {
-          normalized[rolle] = Array.isArray(rett) ? { rights: rett, ansvarlige: [] } : { rights: rett.rights || [], ansvarlige: rett.ansvarlige || [] };
-        });
-        setPermissions(normalized);
-      }
-
-      if (brugereSvar.ok) {
-        const data = await brugereSvar.json();
-        setBrugere(data);
+        setPermissions(normalizePermissions(data));
       }
     })();
   }, [erAdmin, token]);
 
   useEffect(() => {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
-  }, [config]);
+    if (!valgtRolle && roller.length > 0) setValgtRolle(roller[0]);
+  }, [roller, valgtRolle]);
 
-  const filtreredeBrugere = useMemo(() => {
-    const q = soeg.toLowerCase().trim();
-    if (!q) return brugere.slice(0, 20);
-    return brugere.filter((b) => (b.kaldenavn || b.navn || '').toLowerCase().includes(q)).slice(0, 20);
-  }, [soeg, brugere]);
-
-  function opdaterListe(key, items) {
-    setConfig(prev => ({ ...prev, [key]: items }));
+  async function refreshRoller() {
+    const rollerSvar = await fetch('/api/auth/roller');
+    if (rollerSvar.ok) setRoller(await rollerSvar.json());
   }
 
-  async function opretMyndighed() {
-    const navn = nyMyndighed.trim();
-    if (!navn) return;
-
+  async function opretRolle(navn, meta) {
+    const clean = navn.trim();
+    if (!clean) return;
     const svar = await fetch('/api/admin/roller', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
-      body: JSON.stringify({ navn })
+      body: JSON.stringify({ navn: clean })
     });
+    if (!svar.ok) return;
+    setPermissions((prev) => ({ ...prev, [clean]: { rights: prev[clean]?.rights || [], __meta: { ...DEFAULT_META, ...meta } } }));
+    setValgtRolle(clean);
+    await refreshRoller();
+  }
 
+  async function omdoebRolle(rolle) {
+    const nytNavn = window.prompt('Nyt navn', rolle)?.trim();
+    if (!nytNavn || nytNavn === rolle) return;
+    const svar = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/omdoeb`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify({ nytNavn })
+    });
     if (!svar.ok) return;
 
-    const rollerSvar = await fetch('/api/auth/roller');
-    if (rollerSvar.ok) {
-      const data = await rollerSvar.json();
-      setRoller(data);
-      if (!config.myndigheder.some(m => m.label === navn)) {
-        opdaterListe('myndigheder', [...config.myndigheder, { id: `m_${Date.now()}`, label: navn }]);
-      }
-      setValgtRolle(navn);
-    }
+    setPermissions((prev) => {
+      const next = { ...prev };
+      next[nytNavn] = { ...(next[rolle] || { rights: [], __meta: { ...DEFAULT_META } }) };
+      delete next[rolle];
+      Object.keys(next).forEach((key) => {
+        if (next[key]?.__meta?.parentRole === rolle) next[key].__meta.parentRole = nytNavn;
+      });
+      return next;
+    });
 
-    setNyMyndighed('');
+    if (valgtRolle === rolle) setValgtRolle(nytNavn);
+    await refreshRoller();
+  }
+
+  async function sletRolle(rolle) {
+    if (!window.confirm(`Slet ${rolle}?`)) return;
+    const svar = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/anmod-slet`, {
+      method: 'POST',
+      headers: { 'x-auth-token': token }
+    });
+    if (!svar.ok) return;
+    const bekraeft = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/bekraeft-slet`, {
+      method: 'POST',
+      headers: { 'x-auth-token': token }
+    });
+    if (!bekraeft.ok) return;
+
+    setPermissions((prev) => {
+      const next = { ...prev };
+      delete next[rolle];
+      Object.keys(next).forEach((key) => {
+        if (next[key]?.__meta?.parentRole === rolle) next[key].__meta.parentRole = null;
+      });
+      return next;
+    });
+    if (valgtRolle === rolle) setValgtRolle('');
+    await refreshRoller();
   }
 
   function toggleRight(right) {
     const cur = new Set(aktivConfig.rights || []);
     if (cur.has(right)) cur.delete(right); else cur.add(right);
-    setPermissions(prev => ({ ...prev, [valgtRolle]: { ...aktivConfig, rights: [...cur] } }));
-  }
-
-  function toggleAnsvarlig(userId) {
-    const cur = new Set(aktivConfig.ansvarlige || []);
-    if (cur.has(userId)) cur.delete(userId); else cur.add(userId);
-    setPermissions(prev => ({ ...prev, [valgtRolle]: { ...aktivConfig, ansvarlige: [...cur] } }));
+    setPermissions((prev) => ({ ...prev, [valgtRolle]: { ...aktivConfig, rights: [...cur] } }));
   }
 
   async function gemRettigheder() {
-    const payload = { ...permissions };
     await fetch('/api/auth/admin/rettigheder', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(permissions)
     });
   }
 
@@ -169,100 +222,116 @@ export default function RettighederAdmin() {
       <div className="max-w-6xl mx-auto space-y-4">
         <button onClick={() => navigate('/kontrolpanel')} className="text-sm text-gray-500">← Tilbage</button>
         <h1 className="text-3xl font-bold">Rettigheder & Roller</h1>
-        <p className="text-sm text-gray-500">Roller = Årgang, Kollegie og Myndighed. Fanen “Rettigheder” er slettet.</p>
 
-        <div className="flex gap-2 flex-wrap">
-          {['aaargange', 'kollegie', 'myndigheder'].map(t => (
-            <button key={t} onClick={() => setFane(t)} className={`px-3 py-1.5 rounded-lg text-sm ${fane === t ? 'bg-gray-900 text-white' : 'bg-white border'}`}>{t}</button>
-          ))}
-        </div>
-
-        {fane !== 'myndigheder' && (
-          <div className="bg-white rounded-2xl border p-5">
-            <textarea
-              className="w-full min-h-56 border rounded-xl p-3 text-sm font-mono"
-              value={JSON.stringify(fane === 'aaargange' ? config.aaargange : config.kollegier, null, 2)}
-              onChange={e => {
-                try {
-                  const parsed = JSON.parse(e.target.value);
-                  opdaterListe(fane === 'aaargange' ? 'aaargange' : 'kollegier', parsed);
-                } catch {}
-              }}
-            />
-          </div>
-        )}
-
-        {fane === 'myndigheder' && (
-          <div className="grid lg:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border p-5 space-y-3">
+        <div className="grid lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border p-5 space-y-4">
+            <div className="space-y-2">
+              <h3 className="font-semibold">Myndigheder (uden kasse)</h3>
               <div className="flex gap-2">
-                <input value={nyMyndighed} onChange={e => setNyMyndighed(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder="Opret myndighed, fx Undergrunden" />
-                <button onClick={opretMyndighed} className="px-3 py-2 bg-green-700 text-white rounded-lg text-sm">Opret kasse</button>
+                <input value={nyMyndighedNavn} onChange={(e) => setNyMyndighedNavn(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder="Opret myndighed" />
+                <button onClick={() => { opretRolle(nyMyndighedNavn, { kind: 'authority', parentRole: null }); setNyMyndighedNavn(''); }} className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm">Opret myndighed</button>
               </div>
-
-              <select value={valgtRolle} onChange={e => setValgtRolle(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm">
-                {roller.filter(r => r !== 'Admin' && r !== 'Owner').map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-
-              <h3 className="font-semibold">Ansvarlige brugere (søg på kaldenavn)</h3>
-              <input value={soeg} onChange={e => setSoeg(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Søg kaldenavn" />
-              <div className="max-h-56 overflow-auto border rounded-lg">
-                {filtreredeBrugere.map(b => (
-                  <label key={b.id} className="flex items-center gap-2 px-3 py-2 text-sm border-b last:border-b-0">
-                    <input type="checkbox" checked={(aktivConfig.ansvarlige || []).includes(b.id)} onChange={() => toggleAnsvarlig(b.id)} />
-                    <span>{b.kaldenavn || b.navn}</span>
-                  </label>
+              <div className="flex flex-wrap gap-2">
+                {frieMyndigheder.map((r) => (
+                  <button key={r} onClick={() => setValgtRolle(r)} className={`px-2 py-1 border rounded text-sm ${valgtRolle === r ? 'bg-gray-900 text-white' : 'bg-white'}`}>{r}</button>
                 ))}
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl border p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold">Magt for rollen: {valgtRolle || '—'}</h3>
-                <button onClick={gemRettigheder} className="px-3 py-2 bg-blue-700 text-white rounded-lg text-sm">Gem rettigheder</button>
+            <div className="space-y-2">
+              <h3 className="font-semibold">Kasser (overskrifter)</h3>
+              <div className="flex gap-2">
+                <input value={nyKasseNavn} onChange={(e) => setNyKasseNavn(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder="Opret kasse" />
+                <button onClick={() => { opretRolle(nyKasseNavn, { kind: 'box', parentRole: null }); setNyKasseNavn(''); }} className="px-3 py-2 bg-green-700 text-white rounded-lg text-sm">Opret kasse</button>
               </div>
-
               <div className="space-y-3">
-                {RETTIGHEDS_TRAE.map((node) => (
-                  <div key={node.id} className="border rounded-xl p-3">
-                    <div className="flex items-center justify-between">
-                      <button onClick={() => setAabenNode(aabenNode === node.id ? null : node.id)} className="text-sm font-medium">{node.label}</button>
-                      <button onClick={() => node.rights.forEach(toggleRight)} className="text-sm">⚙️</button>
-                    </div>
-
-                    {aabenNode === node.id && (
-                      <div className="mt-2 space-y-2">
-                        {node.rights.map((r) => (
-                          <label key={r} className="flex items-center gap-2 text-sm">
-                            <input type="checkbox" checked={(aktivConfig.rights || []).includes(r)} onChange={() => toggleRight(r)} />
-                            <span>{r}</span>
-                          </label>
-                        ))}
-
-                        {node.children?.map((child) => (
-                          <div key={child.id} className="ml-4 mt-2 border-l pl-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm">{child.label}</span>
-                              <button onClick={() => child.rights.forEach(toggleRight)} className="text-sm">⚙️</button>
-                            </div>
-                            <div className="space-y-1 mt-1">
-                              {child.rights.map((r) => (
-                                <label key={r} className="flex items-center gap-2 text-sm">
-                                  <input type="checkbox" checked={(aktivConfig.rights || []).includes(r)} onChange={() => toggleRight(r)} />
-                                  <span>{r}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
+                {kasser.map((kasse) => (
+                  <div key={kasse} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <button onClick={() => setValgtRolle(kasse)} className={`font-medium text-left ${valgtRolle === kasse ? 'text-blue-700' : ''}`}>{kasse}</button>
+                      <div className="flex gap-1">
+                        <IconButton icon="➕" title="Tilføj rolle" onClick={() => {
+                          const navn = window.prompt('Navn på rolle under kasse');
+                          if (!navn) return;
+                          opretRolle(navn, { kind: 'role', parentRole: kasse, canManageUnderRole: false });
+                        }} />
+                        <IconButton icon="✏️" title="Rediger navn" onClick={() => omdoebRolle(kasse)} />
+                        <IconButton icon="🗑️" title="Slet gruppe" onClick={() => sletRolle(kasse)} />
+                        <IconButton icon="🔐" title="Juster rettigheder" onClick={() => setValgtRolle(kasse)} className="text-blue-700" />
                       </div>
-                    )}
+                    </div>
+                    <div className="space-y-1">
+                      {(underRoller[kasse] || []).map((rolle) => (
+                        <div key={rolle} className="flex items-center justify-between border rounded px-2 py-1">
+                          <button className={`text-sm ${valgtRolle === rolle ? 'text-blue-700 font-medium' : ''}`} onClick={() => setValgtRolle(rolle)}>{rolle}</button>
+                          <div className="flex gap-1">
+                            <IconButton icon="✏️" title="Rediger navn" onClick={() => omdoebRolle(rolle)} />
+                            <IconButton icon="🗑️" title="Slet rolle" onClick={() => sletRolle(rolle)} />
+                            <IconButton icon="🔐" title="Juster rettigheder" onClick={() => setValgtRolle(rolle)} className="text-blue-700" />
+                            <IconButton icon="👥" title="Se brugere" onClick={() => navigate('/brugere')} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-        )}
+
+          <div className="bg-white rounded-2xl border p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Magt for rollen: {valgtRolle || '—'}</h3>
+              <button onClick={gemRettigheder} className="px-3 py-2 bg-blue-700 text-white rounded-lg text-sm">Gem rettigheder</button>
+            </div>
+            {aktivConfig.__meta.parentRole && (
+              <label className="flex items-center gap-2 text-sm mb-3 border rounded-lg px-3 py-2 bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={!!aktivConfig.__meta.canManageUnderRole}
+                  onChange={(e) => setPermissions((prev) => ({
+                    ...prev,
+                    [valgtRolle]: { ...aktivConfig, __meta: { ...aktivConfig.__meta, canManageUnderRole: e.target.checked } }
+                  }))}
+                />
+                Gør ansvarlig for (Rolle)
+              </label>
+            )}
+
+            <div className="space-y-3">
+              {synligeRettigheder.map((node) => (
+                <div key={node.id} className="border rounded-xl p-3">
+                  <div className="flex items-center justify-between">
+                    <button onClick={() => setAabenNode(aabenNode === node.id ? null : node.id)} className="text-sm font-medium">{node.label}</button>
+                  </div>
+                  {aabenNode === node.id && (
+                    <div className="mt-2 space-y-2">
+                      {node.rights.map((r) => (
+                        <label key={r} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={(aktivConfig.rights || []).includes(r)} onChange={() => toggleRight(r)} />
+                          <span>{r}</span>
+                        </label>
+                      ))}
+                      {(node.children || []).map((child) => (
+                        <div key={child.id} className="ml-4 mt-2 border-l pl-3">
+                          <span className="text-sm">{child.label}</span>
+                          <div className="space-y-1 mt-1">
+                            {child.rights.map((r) => (
+                              <label key={r} className="flex items-center gap-2 text-sm">
+                                <input type="checkbox" checked={(aktivConfig.rights || []).includes(r)} onChange={() => toggleRight(r)} />
+                                <span>{r}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
