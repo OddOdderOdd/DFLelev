@@ -192,9 +192,28 @@ model Folder {
 
   // Relations
   files         File[]
+  accessRules   FolderAccessRule[]
 
   @@unique([boxId, sti])
   @@index([boxId, parentId])
+}
+
+model FolderAccessRule {
+  id         String   @id @default(cuid())
+  boxId      String
+  box        Box      @relation(fields: [boxId], references: [id], onDelete: Cascade)
+
+  folderPath String   // '' = box root, ellers fx "A/B"
+  rolle      String
+  canView    Boolean  @default(true)
+  canEdit    Boolean  @default(false)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([boxId, folderPath, rolle])
+  @@index([boxId, folderPath])
+  @@index([rolle])
 }
 
 model File {

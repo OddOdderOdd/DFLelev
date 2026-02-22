@@ -57,7 +57,7 @@ router.post('/godkend/:id', requireAdmin, async (req, res) => {
     const { justeret_myndigheder } = req.body;
 
     const bruger = await prisma.user.findUnique({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       include: { myndigheder: true }
     });
 
@@ -67,7 +67,7 @@ router.post('/godkend/:id', requireAdmin, async (req, res) => {
 
     // Update user
     const updated = await prisma.user.update({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       data: {
         aktiv: true,
         afventerGodkendelse: false,
@@ -212,7 +212,7 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
 
     // Update user
     const updated = await prisma.user.update({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       data: {
         kollegie: kollegie !== undefined ? kollegie : user.kollegie,
         aargang: aargang !== undefined ? aargang : user.aargang,
@@ -308,7 +308,7 @@ router.get('/roedt-flag', requireAdmin, async (req, res) => {
 router.put('/roedt-flag/:id/resolve', requireAdmin, async (req, res) => {
   try {
     const flag = await prisma.redFlag.update({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       data: {
         resolved: true,
         resolvedAt: new Date(),
@@ -538,7 +538,7 @@ router.post('/roller', requireAdmin, async (req, res) => {
  * PUT /api/admin/roller/:id/omdoeb
  * Omdøb rolle — opdaterer navn i Rolle og UserAuthority overalt
  */
-router.put('/roller/:id/omdoeb', requireAdmin, async (req, res) => {
+router.put('/roller/:rolleNavn/omdoeb', requireAdmin, async (req, res) => {
   try {
     const { nytNavn } = req.body;
     if (!nytNavn?.trim()) return res.status(400).json({ fejl: 'Nyt navn kræves' });
@@ -546,14 +546,14 @@ router.put('/roller/:id/omdoeb', requireAdmin, async (req, res) => {
       return res.status(400).json({ fejl: 'Kan ikke omdøbe til en systemrolle' });
     }
 
-    const rolle = await prisma.rolle.findUnique({ where: { id: req.params.id } });
+    const rolle = await prisma.rolle.findUnique({ where: { navn: req.params.rolleNavn } });
     if (!rolle || rolle.slettet) return res.status(404).json({ fejl: 'Rolle ikke fundet' });
 
     const gammeltNavn = rolle.navn;
 
     // Opdater Rolle-tabel
     const opdateret = await prisma.rolle.update({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       data: { navn: nytNavn.trim() },
     });
 
@@ -590,13 +590,13 @@ router.put('/roller/:id/omdoeb', requireAdmin, async (req, res) => {
  * POST /api/admin/roller/:id/anmod-slet
  * Trin 1: Admin anmoder om sletning — kræver bekræftelse fra ANDEN admin
  */
-router.post('/roller/:id/anmod-slet', requireAdmin, async (req, res) => {
+router.post('/roller/:rolleNavn/anmod-slet', requireAdmin, async (req, res) => {
   try {
-    const rolle = await prisma.rolle.findUnique({ where: { id: req.params.id } });
+    const rolle = await prisma.rolle.findUnique({ where: { navn: req.params.rolleNavn } });
     if (!rolle || rolle.slettet) return res.status(404).json({ fejl: 'Rolle ikke fundet' });
 
     const opdateret = await prisma.rolle.update({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       data: {
         sletAnmodetAf: req.user.id,
         sletAnmodetAt: new Date(),
@@ -625,9 +625,9 @@ router.post('/roller/:id/anmod-slet', requireAdmin, async (req, res) => {
  * POST /api/admin/roller/:id/bekraeft-slet
  * Trin 2: EN ANDEN admin bekræfter soft-delete
  */
-router.post('/roller/:id/bekraeft-slet', requireAdmin, async (req, res) => {
+router.post('/roller/:rolleNavn/bekraeft-slet', requireAdmin, async (req, res) => {
   try {
-    const rolle = await prisma.rolle.findUnique({ where: { id: req.params.id } });
+    const rolle = await prisma.rolle.findUnique({ where: { navn: req.params.rolleNavn } });
     if (!rolle || rolle.slettet) return res.status(404).json({ fejl: 'Rolle ikke fundet' });
     if (!rolle.sletAnmodetAf) return res.status(400).json({ fejl: 'Ingen sletnings-anmodning på denne rolle' });
     if (rolle.sletAnmodetAf === req.user.id) {
@@ -635,7 +635,7 @@ router.post('/roller/:id/bekraeft-slet', requireAdmin, async (req, res) => {
     }
 
     const opdateret = await prisma.rolle.update({
-      where: { id: req.params.id },
+      where: { navn: req.params.rolleNavn },
       data: {
         slettet: true,
         slettetDato: new Date(),
