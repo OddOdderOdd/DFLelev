@@ -11,6 +11,7 @@ export default function Brugere() {
   const [brugere, setBrugere] = useState([]);
   const [redigerBruger, setRedigerBruger] = useState(null);
   const [roller, setRoller] = useState(['Admin', 'Owner']);
+  const [fejl, setFejl] = useState('');
 
   const erAdmin = mig?.myndigheder?.some(m => m.rolle === 'Admin' || m.rolle === 'Owner');
 
@@ -38,6 +39,7 @@ export default function Brugere() {
   });
 
   async function gem() {
+    setFejl('');
     const svar = await fetch(`/api/admin/bruger/${redigerBruger.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
@@ -47,7 +49,11 @@ export default function Brugere() {
       setRedigerBruger(null);
       const nysvar = await fetch('/api/admin/brugere', { headers: { 'x-auth-token': token } });
       if (nysvar.ok) setBrugere(await nysvar.json());
+      return;
     }
+
+    const data = await svar.json().catch(() => ({}));
+    setFejl(data.fejl || 'Kunne ikke gemme ændringer.');
   }
 
   if (!erAdmin) return <div className="min-h-screen flex items-center justify-center">Kun administratorer har adgang</div>;
@@ -88,14 +94,33 @@ export default function Brugere() {
             <select value={redigerBruger.kollegie || ''} onChange={e => setRedigerBruger(prev => ({ ...prev, kollegie: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm">
               {KOLLEGIER.map(k => <option key={k} value={k}>{k || 'Vælg kollegie'}</option>)}
             </select>
-            <select
-              value={redigerBruger.myndigheder?.[0]?.rolle || ''}
-              onChange={e => setRedigerBruger(prev => ({ ...prev, myndigheder: e.target.value ? [{ rolle: e.target.value }] : [] }))}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">Vælg rolle</option>
-              {roller.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+            <div className="border rounded-lg p-2 max-h-40 overflow-auto">
+              <p className="text-xs text-gray-500 mb-2">Myndigheder</p>
+              <div className="space-y-1">
+                {roller.map((r) => {
+                  const valgt = (redigerBruger.myndigheder || []).some((m) => m.rolle === r);
+                  return (
+                    <label key={r} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={valgt}
+                        onChange={() => {
+                          setRedigerBruger((prev) => {
+                            const eksisterende = prev.myndigheder || [];
+                            if (valgt) {
+                              return { ...prev, myndigheder: eksisterende.filter((m) => m.rolle !== r) };
+                            }
+                            return { ...prev, myndigheder: [...eksisterende, { rolle: r }] };
+                          });
+                        }}
+                      />
+                      {r}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            {fejl && <p className="text-sm text-red-600">{fejl}</p>}
             <div className="flex gap-2 pt-2">
               <button onClick={gem} className="flex-1 bg-green-700 text-white rounded-lg py-2 text-sm">Gem</button>
               <button onClick={() => setRedigerBruger(null)} className="flex-1 bg-gray-100 rounded-lg py-2 text-sm">Annuller</button>
