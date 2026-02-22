@@ -148,7 +148,7 @@ function Arkiv() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 pt-20">
+      <div className="min-h-screen bg-slate-50 pt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="text-center">
             <div className="text-6xl mb-4">⏳</div>
@@ -160,12 +160,12 @@ function Arkiv() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-20">
+    <div className="min-h-screen bg-slate-50 pt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">📁 Arkiv</h1>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Arkiv</h1>
             <p className="text-gray-600">
               Centrale dokumenter og politikker - {nasStatus.usingLocalStorage ? '💻 Lokal Storage' : '💾 NAS Storage'}
             </p>
@@ -207,7 +207,7 @@ function Arkiv() {
             {boxes.map((box) => (
               <div
                 key={box.id}
-                className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow group relative"
+                className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all group relative"
               >
                 {/* Storage Badge */}
                 <div className="absolute top-3 right-3 z-10">
@@ -219,7 +219,7 @@ function Arkiv() {
                 {/* Thumbnail */}
                 <Link to={`/arkiv/${box.id}`}>
                   <div
-                    className="h-40 flex items-center justify-center text-white text-6xl"
+                    className="h-40 flex items-center justify-center text-white text-6xl bg-gradient-to-br from-indigo-600 to-blue-600"
                     style={{ backgroundColor: box.farve || '#3b82f6' }}
                   >
                     {box.billede ? (

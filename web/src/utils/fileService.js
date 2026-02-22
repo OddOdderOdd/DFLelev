@@ -209,3 +209,24 @@ export async function getNasStatus() {
   }
   return response.json();
 }
+
+export async function getFolderAccessRules(boxId, folderPath = '') {
+  const response = await fetch(`${API_BASE}/files/access/${boxId}?folderPath=${encodeURIComponent(folderPath)}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) throw new Error('Kunne ikke hente adgangsregler');
+  return response.json();
+}
+
+export async function saveFolderAccessRules(boxId, folderPath = '', rules = []) {
+  const response = await fetch(`${API_BASE}/files/access/${boxId}`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ folderPath, rules }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.fejl || 'Kunne ikke gemme adgangsregler');
+  }
+  return response.json();
+}

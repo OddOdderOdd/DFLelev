@@ -320,7 +320,7 @@ router.get('/rettigheder', async (req, res) => {
     const result = {};
     permissions.forEach(p => {
       const parsed = JSON.parse(p.rettigheder);
-      result[p.rolle] = Array.isArray(parsed) ? parsed : (parsed.rights || []);
+      result[p.rolle] = Array.isArray(parsed) ? parsed : (parsed || { rights: [] });
     });
 
     res.json(result);

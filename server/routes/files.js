@@ -41,6 +41,41 @@ function getMimeType(filename) {
   return mimeTypes[ext] || 'application/octet-stream';
 }
 
+
+async function getUserRoles(userId) {
+  const authorities = await prisma.userAuthority.findMany({ where: { userId }, select: { rolle: true } });
+  return authorities.map((a) => a.rolle);
+}
+
+function parentPaths(pathValue = '') {
+  if (!pathValue) return [''];
+  const parts = pathValue.split('/').filter(Boolean);
+  const paths = [''];
+  for (let i = 0; i < parts.length; i++) paths.push(parts.slice(0, i + 1).join('/'));
+  return paths;
+}
+
+async function hasFolderAccess(boxId, userId, targetPath = '', mode = 'view') {
+  const roles = await getUserRoles(userId);
+  if (roles.includes('Admin') || roles.includes('Owner')) return true;
+  if (!roles.length) return false;
+
+  const rules = await prisma.folderAccessRule.findMany({ where: { boxId, folderPath: { in: parentPaths(targetPath) }, rolle: { in: roles } } });
+  if (!rules.length) return mode === 'view';
+  const allowView = rules.some((r) => r.canView);
+  const allowEdit = rules.some((r) => r.canEdit);
+  return mode === 'edit' ? allowEdit : allowView;
+}
+
+async function ensureFolderAccess(req, res, boxId, targetPath, mode = 'view') {
+  const ok = await hasFolderAccess(boxId, req.user.id, targetPath || '', mode);
+  if (!ok) {
+    res.status(403).json({ fejl: 'Du har ikke adgang til denne mappe' });
+    return false;
+  }
+  return true;
+}
+
 // Helper: Scan directory recursively
 async function scanDirectory(boxId, dirPath, currentPath = '', boxCategory) {
   const items = { files: [], folders: [] };
@@ -117,6 +152,8 @@ router.post('/upload', requireAuth, upload.array('files'), async (req, res) => {
     const boxPath = path.join(basePath, box.fysiskSti);
     const targetDir = currentPath ? path.join(boxPath, currentPath) : boxPath;
 
+    if (!(await ensureFolderAccess(req, res, box.id, currentPath || '', 'edit'))) return;
+
     // Ensure target directory exists
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
@@ -178,7 +215,7 @@ router.post('/upload', requireAuth, upload.array('files'), async (req, res) => {
  * GET /api/files/sync/:boxId
  * Synkroniser database med fysisk filsystem
  */
-router.get('/sync/:boxId', async (req, res) => {
+router.get('/sync/:boxId', requireAuth, async (req, res) => {
   try {
     const { boxId } = req.params;
 
@@ -193,6 +230,8 @@ router.get('/sync/:boxId', async (req, res) => {
 
     const basePath = getBasePath(box.category);
     const boxPath = path.join(basePath, box.fysiskSti);
+
+    if (!(await ensureFolderAccess(req, res, box.id, '', 'view'))) return;
 
     // Scan physical directory
     const scanned = await scanDirectory(boxId, boxPath, '', box.category);
@@ -269,12 +308,17 @@ router.get('/sync/:boxId', async (req, res) => {
       where: { boxId }
     });
 
-    console.log(`🔄 Synced ${box.category}/${boxId}: ${files.length} files, ${folders.length} folders`);
+    const visibleFiles = [];
+    for (const file of files) { if (await hasFolderAccess(boxId, req.user.id, file.sti.includes('/') ? file.sti.split('/').slice(0, -1).join('/') : '', 'view')) visibleFiles.push(file); }
+    const visibleFolders = [];
+    for (const folder of folders) { if (await hasFolderAccess(boxId, req.user.id, folder.sti, 'view')) visibleFolders.push(folder); }
+
+    console.log(`🔄 Synced ${box.category}/${boxId}: ${visibleFiles.length} files, ${visibleFolders.length} folders`);
 
     res.json({
       success: true,
-      files,
-      folders
+      files: visibleFiles,
+      folders: visibleFolders
     });
   } catch (error) {
     console.error('Sync error:', error);
@@ -286,7 +330,7 @@ router.get('/sync/:boxId', async (req, res) => {
  * GET /api/files/:boxId/*
  * Download/stream en fil
  */
-router.get('/:boxId/*', async (req, res) => {
+router.get('/:boxId/*', requireAuth, async (req, res) => {
   try {
     const { boxId } = req.params;
     const filePath = req.params[0];
@@ -301,6 +345,8 @@ router.get('/:boxId/*', async (req, res) => {
     }
 
     const basePath = getBasePath(box.category);
+    const folderPath = filePath.includes('/') ? filePath.split('/').slice(0, -1).join('/') : '';
+    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'view'))) return;
     const fullPath = path.join(basePath, box.fysiskSti, filePath);
 
     if (!fs.existsSync(fullPath)) {
@@ -334,6 +380,8 @@ router.delete('/:boxId/*', requireAuth, async (req, res) => {
     }
 
     const basePath = getBasePath(box.category);
+    const folderPath = filePath.includes('/') ? filePath.split('/').slice(0, -1).join('/') : '';
+    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'view'))) return;
     const fullPath = path.join(basePath, box.fysiskSti, filePath);
 
     if (!fs.existsSync(fullPath)) {
@@ -420,6 +468,8 @@ router.post('/create-folder', requireAuth, async (req, res) => {
 
     const basePath = getBasePath(box.category);
     const boxPath = path.join(basePath, box.fysiskSti);
+    if (!(await ensureFolderAccess(req, res, box.id, currentPath || '', 'edit'))) return;
+
     const folderPath = currentPath 
       ? path.join(boxPath, currentPath, folderName)
       : path.join(boxPath, folderName);
@@ -576,6 +626,42 @@ router.put('/rename', requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Rename error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+
+router.get('/access/:boxId', requireAuth, async (req, res) => {
+  try {
+    const box = await prisma.box.findUnique({ where: { id: req.params.boxId } });
+    if (!box) return res.status(404).json({ fejl: 'Box ikke fundet' });
+    const folderPath = String(req.query.folderPath || '');
+    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'view'))) return;
+    const rules = await prisma.folderAccessRule.findMany({ where: { boxId: box.id, folderPath } });
+    res.json(rules);
+  } catch (error) {
+    console.error('Get access rules error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+router.put('/access/:boxId', requireAuth, async (req, res) => {
+  try {
+    const box = await prisma.box.findUnique({ where: { id: req.params.boxId } });
+    if (!box) return res.status(404).json({ fejl: 'Box ikke fundet' });
+    const { folderPath = '', rules = [] } = req.body;
+    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'edit'))) return;
+
+    await prisma.folderAccessRule.deleteMany({ where: { boxId: box.id, folderPath } });
+    if (rules.length) {
+      await prisma.folderAccessRule.createMany({
+        data: rules.map((r) => ({ boxId: box.id, folderPath, rolle: r.rolle, canView: r.canView !== false, canEdit: !!r.canEdit }))
+      });
+    }
+    const created = await prisma.folderAccessRule.findMany({ where: { boxId: box.id, folderPath } });
+    res.json(created);
+  } catch (error) {
+    console.error('Update access rules error:', error);
     res.status(500).json({ fejl: 'Server fejl' });
   }
 });
