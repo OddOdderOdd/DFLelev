@@ -35,10 +35,17 @@ function Arkiv() {
     checkNasStatus();
   }, []);
 
-  const loadBoxes = async () => {
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadBoxes(searchQuery);
+    }, 200);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
+
+  const loadBoxes = async (query = "") => {
     setIsLoading(true);
     try {
-      const data = await listBoxes(CATEGORY);
+      const data = await listBoxes(CATEGORY, query);
       setBoxes(data || []);
       console.log(`📦 Loaded ${data?.length || 0} boxes from ${CATEGORY}`);
     } catch (error) {
@@ -107,16 +114,7 @@ function Arkiv() {
     }
   };
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-
-  const filteredBoxes = boxes.filter((box) => {
-    if (!normalizedQuery) return true;
-    const title = (box.titel || '').toLowerCase();
-    const description = (box.beskrivelse || '').toLowerCase();
-    return title.includes(normalizedQuery) || description.includes(normalizedQuery);
-  });
-
-  const sortedBoxes = [...filteredBoxes].sort((a, b) => {
+  const sortedBoxes = [...boxes].sort((a, b) => {
     if (sortOption === 'title-asc') {
       return (a.titel || '').localeCompare(b.titel || '', 'da');
     }
@@ -227,7 +225,7 @@ function Arkiv() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Søg i kasser (titel og beskrivelse)..."
+                  placeholder="Søg i kasser, mapper og filer..."
                   className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-300 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 />
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
@@ -329,7 +327,7 @@ function Arkiv() {
             <h2 className="text-2xl font-bold text-gray-700 mb-2">Ingen kasser endnu</h2>
             <p className="text-gray-500 mb-6">
               {searchQuery
-                ? 'Ingen kasser matcher din søgning.'
+                ? 'Ingen kasser, mapper eller filer matcher din søgning.'
                 : isAdmin
                   ? 'Klik på "Opret kasse" for at komme i gang'
                   : 'Der er ingen arkiv-kasser tilgængelige'}
@@ -386,6 +384,14 @@ function Arkiv() {
                   <p className="text-gray-600 text-sm mb-4 line-clamp-2">
                     {box.beskrivelse || 'Ingen beskrivelse'}
                   </p>
+
+                  {showInfo && (
+                    <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-1">
+                      <div>📁 Undermapper: <span className="font-semibold">{box.stats?.folderCount ?? box._count?.folders ?? 0}</span></div>
+                      <div>📄 Filer: <span className="font-semibold">{box.stats?.fileCount ?? box._count?.files ?? 0}</span></div>
+                      <div>💾 Størrelse: <span className="font-semibold">{formatFileSize(box.stats?.totalBytes ?? 0)}</span></div>
+                    </div>
+                  )}
 
                   {/* Admin Actions */}
                   {isAdmin && (

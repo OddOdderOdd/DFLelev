@@ -28,7 +28,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
       setError('');
       try {
         const [rollerRes, existingRules] = await Promise.all([
-          fetch('/api/auth/roller').then((r) => (r.ok ? r.json() : [])),
+          fetch('http://localhost:3001/api/auth/roller', { headers: { 'x-auth-token': localStorage.getItem('dfl_token') || '' } }).then((r) => (r.ok ? r.json() : [])),
           getFolderAccessRules(boxId, folderPath || ''),
         ]);
         if (cancelled) return;
@@ -107,7 +107,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
     : 'Adgang for hele kassen';
 
   return (
-    <div className="fixed inset-0 z-40 flex">
+    <div className="fixed inset-0 z-[120] flex">
       {/* Overlay */}
       <div
         className="flex-1 bg-black/40"

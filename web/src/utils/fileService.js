@@ -56,8 +56,9 @@ export async function syncBox(boxId) {
 /**
  * List boxes in a category
  */
-export async function listBoxes(category) {
-  const response = await fetch(`${API_BASE}/boxes?category=${category}`, {
+export async function listBoxes(category, searchQuery = "") {
+  const query = searchQuery?.trim() ? `&q=${encodeURIComponent(searchQuery.trim())}` : "";
+  const response = await fetch(`${API_BASE}/boxes?category=${category}${query}`, {
     headers: authHeaders(),
   });
 
@@ -253,6 +254,33 @@ export async function getBoxesSummary(category) {
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.fejl || 'Kunne ikke hente box-statistik');
+  }
+  return response.json();
+}
+
+
+export async function saveFolderMetadata(boxId, folderPath, payload = {}) {
+  const response = await fetch(`${API_BASE}/files/metadata/folder`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ boxId, folderPath, ...payload }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.fejl || 'Kunne ikke gemme mappemetadata');
+  }
+  return response.json();
+}
+
+export async function saveFileMetadata(boxId, filePath, payload = {}) {
+  const response = await fetch(`${API_BASE}/files/metadata/file`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ boxId, filePath, ...payload }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.fejl || 'Kunne ikke gemme filmetadata');
   }
   return response.json();
 }

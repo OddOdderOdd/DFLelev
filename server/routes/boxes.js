@@ -22,17 +22,39 @@ function generateBoxId(title) {
   return `${slug}-${timestamp}`;
 }
 
+async function syncBoxPermissionEntry(box) {
+  const payload = {
+    rights: [],
+    __meta: {
+      kind: 'box',
+      parentRole: null,
+      canManageUnderRole: false,
+      scopeKind: box.category,
+      boxId: box.id,
+      objectType: 'box',
+    }
+  };
+
+  await prisma.permission.upsert({
+    where: { rolle: `box:${box.id}` },
+    update: { rettigheder: JSON.stringify(payload) },
+    create: { rolle: `box:${box.id}`, rettigheder: JSON.stringify(payload) }
+  });
+}
+
 /**
  * GET /api/boxes?category=arkiv
  * List alle boxes i en kategori
  */
 router.get('/', async (req, res) => {
   try {
-    const { category } = req.query;
+    const { category, q } = req.query;
 
     if (!category || !['arkiv', 'ressourcer'].includes(category)) {
       return res.status(400).json({ fejl: 'Ugyldig kategori' });
     }
+
+    const search = String(q || '').trim();
 
     const boxes = await prisma.box.findMany({
       where: { category },
@@ -50,7 +72,56 @@ router.get('/', async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    res.json(boxes);
+    const boxIds = boxes.map((box) => box.id);
+    const [folderCounts, fileStats] = await Promise.all([
+      prisma.folder.groupBy({ by: ['boxId'], where: { boxId: { in: boxIds } }, _count: { _all: true } }),
+      prisma.file.groupBy({ by: ['boxId'], where: { boxId: { in: boxIds } }, _count: { _all: true }, _sum: { stoerrelse: true } })
+    ]);
+
+    const folderCountMap = new Map(folderCounts.map((item) => [item.boxId, item._count?._all ?? 0]));
+    const fileCountMap = new Map(fileStats.map((item) => [item.boxId, item._count?._all ?? 0]));
+    const bytesMap = new Map(fileStats.map((item) => [item.boxId, Number(item._sum?.stoerrelse ?? 0)]));
+
+    const enrichedBoxes = boxes.map((box) => ({
+      ...box,
+      stats: {
+        folderCount: folderCountMap.get(box.id) ?? 0,
+        fileCount: fileCountMap.get(box.id) ?? 0,
+        totalBytes: bytesMap.get(box.id) ?? 0,
+      }
+    }));
+
+    if (!search) return res.json(enrichedBoxes);
+
+    const [matchingFolders, matchingFiles] = await Promise.all([
+      prisma.folder.findMany({
+        where: {
+          boxId: { in: boxIds },
+          OR: [{ navn: { contains: search } }, { titel: { contains: search } }, { sti: { contains: search } }]
+        },
+        select: { boxId: true }
+      }),
+      prisma.file.findMany({
+        where: {
+          boxId: { in: boxIds },
+          OR: [{ filnavn: { contains: search } }, { titel: { contains: search } }, { sti: { contains: search } }]
+        },
+        select: { boxId: true }
+      })
+    ]);
+
+    const matchingFolderBoxIds = new Set(matchingFolders.map((item) => item.boxId));
+    const matchingFileBoxIds = new Set(matchingFiles.map((item) => item.boxId));
+    const needle = search.toLowerCase();
+
+    res.json(
+      enrichedBoxes.filter((box) =>
+        (box.titel || '').toLowerCase().includes(needle) ||
+        (box.beskrivelse || '').toLowerCase().includes(needle) ||
+        matchingFolderBoxIds.has(box.id) ||
+        matchingFileBoxIds.has(box.id)
+      )
+    );
   } catch (error) {
     console.error('List boxes error:', error);
     res.status(500).json({ fejl: 'Server fejl' });
@@ -180,6 +251,8 @@ router.post('/', requireAuth, async (req, res) => {
 
     console.log(`📦 Box oprettet: ${category}/${boxId}`);
 
+    await syncBoxPermissionEntry(box);
+
     res.status(201).json(box);
   } catch (error) {
     console.error('Create box error:', error);
@@ -233,6 +306,8 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     console.log(`✏️ Box opdateret: ${updated.category}/${updated.id}`);
 
+    await syncBoxPermissionEntry(updated);
+
     res.json(updated);
   } catch (error) {
     console.error('Update box error:', error);
@@ -267,6 +342,8 @@ router.delete('/:id', requireAuth, async (req, res) => {
     await prisma.box.delete({
       where: { id: req.params.id }
     });
+
+    await prisma.permission.deleteMany({ where: { rolle: `box:${box.id}` } });
 
     // Log activity
     await prisma.activityLog.create({

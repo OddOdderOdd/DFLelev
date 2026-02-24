@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { syncBox, uploadFiles, createFolder, deleteFile, renameItem, getFileUrl, getNasStatus, getBox, formatFileSize, getFileIcon } from '../utils/fileService';
+import { syncBox, uploadFiles, createFolder, deleteFile, renameItem, getFileUrl, getNasStatus, getBox, formatFileSize, getFileIcon, saveFolderMetadata, saveFileMetadata } from '../utils/fileService';
 import AccessKeyPanel from '../components/AccessKeyPanel';
 import mammoth from 'mammoth';
 
@@ -25,8 +25,6 @@ function BoxDetail() {
   const [isSavingMetadata, setIsSavingMetadata] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   const [nasStatus, setNasStatus] = useState({ online: false });
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState(null);
   const [editingItemId, setEditingItemId] = useState(null);
   const [editName, setEditName] = useState('');
   
@@ -67,7 +65,7 @@ function BoxDetail() {
       if (isAdmin) {
         if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
         syncIntervalRef.current = setInterval(() => {
-          syncFiles(true); // Silent sync
+          syncFiles();
         }, 10000);
       }
     }
@@ -102,8 +100,7 @@ function BoxDetail() {
     setNasStatus(status);
   };
 
-  const syncFiles = async (silent = false) => {
-    if (!silent) setIsSyncing(true);
+  const syncFiles = async () => {
     
     try {
       const result = await syncBox(id);
@@ -118,7 +115,8 @@ function BoxDetail() {
             title: folder.titel || folder.navn,
             path: folder.sti,
             parentPath,
-            description: folder.beskrivelse || ''
+            description: folder.beskrivelse || '',
+            image: folder.billede || ''
           };
         });
 
@@ -132,17 +130,18 @@ function BoxDetail() {
             path: file.sti,
             parentPath,
             description: file.beskrivelse || '',
-            tags: file.tags ? JSON.parse(file.tags) : []
+            tags: file.tags ? JSON.parse(file.tags) : [],
+            size: file.stoerrelse || 0,
+            mimeType: file.mimeType
           };
         });
 
         setItems([...folderItems, ...fileItems]);
-        setLastSyncTime(new Date());
+
       }
     } catch (error) {
       console.error('Sync fejl:', error);
     } finally {
-      if (!silent) setIsSyncing(false);
     }
   };
 
@@ -278,6 +277,7 @@ function BoxDetail() {
       title: item.title || item.name,
       description: item.description || '',
       tags: item.tags || [],
+      image: item.image || '',
     });
     setShowMetadataModal(true);
   };
@@ -291,25 +291,23 @@ function BoxDetail() {
 
       if (selectedMetadataItem.type === 'folder') {
         // Gem folder metadata via backend
-        await fileService.saveFolderMetadata(
-          category,
+        await saveFolderMetadata(
           id,
           selectedMetadataItem.path,
           {
-            title: editMetadata.title,
-            description: editMetadata.description,
-            updatedAt: new Date().toISOString(),
+            titel: editMetadata.title,
+            beskrivelse: editMetadata.description,
+            billede: editMetadata.image || '',
           }
         );
       } else {
         // Gem file metadata via backend
-        await fileService.saveFileMetadata(
-          category,
+        await saveFileMetadata(
           id,
           selectedMetadataItem.path,
           {
-            title: editMetadata.title,
-            description: editMetadata.description,
+            titel: editMetadata.title,
+            beskrivelse: editMetadata.description,
             tags: editMetadata.tags,
             uploadedBy: selectedMetadataItem.uploadedBy || 'admin',
             uploadedAt: selectedMetadataItem.uploadedAt || new Date().toISOString(),
@@ -337,14 +335,7 @@ function BoxDetail() {
     }
 
     try {
-      await renameItem(
-        category,
-        id,
-        item.path,
-        editName,
-        
-        item.type
-      );
+      await renameItem(id, item.path, editName, item.type);
 
       // Sync for at opdatere UI
       await syncFiles();
@@ -359,11 +350,7 @@ function BoxDetail() {
   };
 
   const handleDownload = (item) => {
-    const url = getFileUrl(
-      category,
-      id,
-      item.path
-    );
+    const url = getFileUrl(id, item.path);
     
     const link = document.createElement('a');
     link.href = url;
@@ -376,11 +363,7 @@ function BoxDetail() {
   const handlePreview = async (item) => {
     if (item.type === 'folder') return;
 
-    const url = getFileUrl(
-      category,
-      id,
-      item.path
-    );
+    const url = getFileUrl(id, item.path);
 
     // Metadata kommer allerede fra syncBox (database)
     // Special handling for .docx
@@ -460,21 +443,14 @@ function BoxDetail() {
 
           <div className="flex justify-between items-start">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{box.title}</h1>
-              {box.description && (
-                <p className="text-gray-600">{box.description}</p>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">{box.titel}</h1>
+              {box.beskrivelse && (
+                <p className="text-gray-600">{box.beskrivelse}</p>
               )}
             </div>
 
             {isAdmin && (
               <div className="flex gap-2">
-                <button
-                  onClick={() => syncFiles()}
-                  disabled={isSyncing}
-                  className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
-                >
-                  {isSyncing ? '⏳' : '🔄'} Sync
-                </button>
                 <button
                   onClick={() => setShowUploadModal(true)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
@@ -491,12 +467,6 @@ function BoxDetail() {
             )}
           </div>
 
-          {/* Sync Info */}
-          {lastSyncTime && isAdmin && (
-            <p className="text-xs text-gray-500 mt-2">
-              Sidst synkroniseret: {lastSyncTime.toLocaleTimeString('da-DK')}
-            </p>
-          )}
         </div>
 
         {/* NAS Status */}
@@ -587,7 +557,7 @@ function BoxDetail() {
                       className="w-full text-left"
                     >
                       <div className="h-28 bg-gradient-to-br from-slate-800 to-slate-600 flex items-center justify-center text-4xl text-white">
-                        {isFolder ? '📁' : getFileIcon(item.mimeType)}
+                        {isFolder && item.image ? (<img src={item.image} alt={title} className="w-full h-full object-cover" />) : (isFolder ? '📁' : getFileIcon(item.mimeType))}
                       </div>
                     </button>
 
@@ -665,16 +635,18 @@ function BoxDetail() {
                               >
                                 📋
                               </button>
-                              <button
-                                onClick={() => {
-                                  setEditingItemId(item.path);
-                                  setEditName(item.name);
-                                }}
-                                className="text-xs text-slate-600 hover:text-slate-800"
-                                title="Omdøb"
-                              >
-                                ✏️
-                              </button>
+                              {item.type === 'file' && (
+                                <button
+                                  onClick={() => {
+                                    setEditingItemId(item.path);
+                                    setEditName(item.name);
+                                  }}
+                                  className="text-xs text-slate-600 hover:text-slate-800"
+                                  title="Omdøb"
+                                >
+                                  ✏️
+                                </button>
+                              )}
                             </>
                           )}
                         </div>
@@ -785,7 +757,7 @@ function BoxDetail() {
 
                           {/* Størrelse */}
                           <span className="text-xs text-gray-400 w-14 text-right font-mono">
-                            {fileService.formatFileSize(staged.file.size)}
+                            {formatFileSize(staged.file.size)}
                           </span>
 
                           <button
@@ -961,7 +933,7 @@ function BoxDetail() {
               {/* Footer */}
               <div className="p-4 border-t flex justify-between items-center bg-gray-50">
                 <div className="text-sm text-gray-600">
-                  {fileService.formatFileSize(previewFile.size)}
+                  {formatFileSize(previewFile.size)}
                   {previewFile.uploadedAt && (
                     <span className="ml-4">
                       Uploadet: {new Date(previewFile.uploadedAt).toLocaleDateString('da-DK')}
@@ -985,7 +957,7 @@ function BoxDetail() {
               {/* Header */}
               <div className="flex items-center gap-3 mb-5">
                 <span className="text-3xl">
-                  {selectedMetadataItem.type === 'folder' ? '📁' : fileService.getFileIcon(selectedMetadataItem.mimeType)}
+                  {selectedMetadataItem.type === 'folder' ? '📁' : getFileIcon(selectedMetadataItem.mimeType)}
                 </span>
                 <div className="flex-1 min-w-0">
                   <h2 className="text-xl font-bold text-gray-900">Rediger Metadata</h2>
@@ -1024,6 +996,26 @@ function BoxDetail() {
                   disabled={isSavingMetadata}
                 />
               </div>
+
+              {selectedMetadataItem.type === 'folder' && (
+                <div className="mb-5">
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Billede</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (event) => setEditMetadata({ ...editMetadata, image: event.target?.result || '' });
+                      reader.readAsDataURL(file);
+                    }}
+                    className="w-full text-sm text-gray-500"
+                    disabled={isSavingMetadata}
+                  />
+                  {editMetadata.image && <img src={editMetadata.image} alt="Mappebillede" className="mt-2 h-24 w-full object-cover rounded" />}
+                </div>
+              )}
 
               {/* Tags (kun for filer) */}
               {selectedMetadataItem.type === 'file' && (
@@ -1066,7 +1058,7 @@ function BoxDetail() {
                 {selectedMetadataItem.type === 'file' && (
                   <div className="flex justify-between">
                     <span>Størrelse:</span>
-                    <span>{fileService.formatFileSize(selectedMetadataItem.size)}</span>
+                    <span>{formatFileSize(selectedMetadataItem.size)}</span>
                   </div>
                 )}
                 {selectedMetadataItem.uploadedAt && (
