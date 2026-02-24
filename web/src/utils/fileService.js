@@ -210,14 +210,23 @@ export async function getNasStatus() {
   return response.json();
 }
 
+/**
+ * Hent adgangsregler for en mappe (bruges af nøgle-funktionen)
+ */
 export async function getFolderAccessRules(boxId, folderPath = '') {
-  const response = await fetch(`${API_BASE}/files/access/${boxId}?folderPath=${encodeURIComponent(folderPath)}`, {
-    headers: authHeaders(),
-  });
+  const response = await fetch(
+    `${API_BASE}/files/access/${boxId}?folderPath=${encodeURIComponent(folderPath)}`,
+    {
+      headers: authHeaders(),
+    }
+  );
   if (!response.ok) throw new Error('Kunne ikke hente adgangsregler');
   return response.json();
 }
 
+/**
+ * Gem adgangsregler for en mappe (bruges af nøgle-funktionen)
+ */
 export async function saveFolderAccessRules(boxId, folderPath = '', rules = []) {
   const response = await fetch(`${API_BASE}/files/access/${boxId}`, {
     method: 'PUT',
@@ -229,4 +238,51 @@ export async function saveFolderAccessRules(boxId, folderPath = '', rules = []) 
     throw new Error(error.fejl || 'Kunne ikke gemme adgangsregler');
   }
   return response.json();
+}
+
+/**
+ * Aggregeret box-statistik for en kategori (til \"Mere info\" på forsiden)
+ */
+export async function getBoxesSummary(category) {
+  const response = await fetch(
+    `${API_BASE}/boxes/summary?category=${encodeURIComponent(category)}`,
+    {
+      headers: authHeaders(),
+    }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.fejl || 'Kunne ikke hente box-statistik');
+  }
+  return response.json();
+}
+
+/**
+ * Formatter filstørrelse til menneskeligt læsbar tekst
+ */
+export function formatFileSize(bytes) {
+  if (bytes == null || isNaN(bytes)) return '-';
+  const size = Number(bytes);
+  if (size < 1024) return `${size} B`;
+  const kb = size / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(1)} GB`;
+}
+
+/**
+ * Vælg et passende ikon til en fil ud fra mimeType
+ */
+export function getFileIcon(mimeType = '') {
+  if (!mimeType) return '📄';
+  if (mimeType.startsWith('image/')) return '🖼️';
+  if (mimeType.startsWith('video/')) return '🎬';
+  if (mimeType.startsWith('audio/')) return '🎵';
+  if (mimeType === 'application/pdf') return '📕';
+  if (mimeType.includes('word')) return '📘';
+  if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return '📗';
+  if (mimeType.startsWith('text/')) return '📄';
+  return '📦';
 }

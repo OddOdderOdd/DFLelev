@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { syncBox, uploadFiles, createFolder, deleteFile, renameItem, getFileUrl, getNasStatus, getBox } from '../utils/fileService';
+import { syncBox, uploadFiles, createFolder, deleteFile, renameItem, getFileUrl, getNasStatus, getBox, formatFileSize, getFileIcon } from '../utils/fileService';
+import AccessKeyPanel from '../components/AccessKeyPanel';
 import mammoth from 'mammoth';
 
 function BoxDetail() {
@@ -50,6 +51,7 @@ function BoxDetail() {
     uploadedBy: 'admin',
     tags: [],
   });
+  const [accessTarget, setAccessTarget] = useState(null);
 
   // Hent box metadata og sync ved mount
   useEffect(() => {
@@ -145,9 +147,7 @@ function BoxDetail() {
   };
 
   // Filtrer items baseret på current path
-  const getCurrentItems = () => {
-    return items.filter(item => item.parentPath === currentPath);
-  };
+  const getCurrentItems = () => items.filter((item) => item.parentPath === currentPath);
 
   // === UPLOAD HANDLERS ===
 
@@ -525,8 +525,8 @@ function BoxDetail() {
           </div>
         )}
 
-        {/* File Browser */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        {/* Indhold som kort / grid */}
+        <div className="bg-white rounded-2xl shadow-sm p-4 md:p-5">
           {currentItems.length === 0 ? (
             <div className="text-center py-20">
               <div className="text-6xl mb-4">📂</div>
@@ -535,104 +535,122 @@ function BoxDetail() {
               </p>
               {isAdmin && !currentPath && (
                 <p className="text-sm text-gray-400 mt-2">
-                  Klik på "Upload" for at tilføje filer
+                  Klik på &quot;Upload&quot; for at tilføje filer
                 </p>
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Navn
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Størrelse
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Ændret
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Handlinger
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {currentItems.map((item) => (
-                    <tr key={item.path} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl">
-                            {item.type === 'folder' ? '📁' : fileService.getFileIcon(item.mimeType)}
-                          </span>
-                          
-                          {editingItemId === item.path && isAdmin ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleRename(item);
-                                  if (e.key === 'Escape') setEditingItemId(null);
-                                }}
-                                className="px-2 py-1 border border-gray-300 rounded text-sm"
-                                autoFocus
-                              />
-                              <button
-                                onClick={() => handleRename(item)}
-                                className="text-green-600 hover:text-green-700"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                onClick={() => setEditingItemId(null)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <div>
-                              {item.type === 'folder' ? (
-                                <button
-                                  onClick={() => openFolder(item.path)}
-                                  className="text-blue-600 hover:text-blue-700 font-medium"
-                                >
-                                  {item.title || item.name}
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handlePreview(item)}
-                                  className="text-gray-900 hover:text-blue-600"
-                                >
-                                  {item.title || item.name}
-                                </button>
-                              )}
-                              {item.description && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {item.description}
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {currentItems.map((item) => {
+                const isFolder = item.type === 'folder';
+                const title = item.title || item.name;
+                const description = item.description;
+                const sizeLabel = isFolder ? '-' : formatFileSize(item.size);
+                const dateLabel = item.modified || item.created;
+
+                const onPrimaryClick = () => {
+                  if (isFolder) {
+                    openFolder(item.path);
+                  } else {
+                    handlePreview(item);
+                  }
+                };
+
+                const showInlineRename = editingItemId === item.path && isAdmin;
+
+                return (
+                  <div
+                    key={item.path}
+                    className="group relative rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 hover:shadow-md transition-all overflow-hidden"
+                  >
+                    {/* Admin key for mapper */}
+                    {isAdmin && isFolder && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAccessTarget({
+                            boxId: box.id,
+                            folderPath: item.path,
+                            label: `Mappe: ${title}`,
+                          })
+                        }
+                        className="absolute top-2 right-2 z-10 rounded-full bg-white/90 border border-slate-200 shadow-sm px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                        title="Styr adgang til denne mappe"
+                      >
+                        🔑
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={onPrimaryClick}
+                      className="w-full text-left"
+                    >
+                      <div className="h-28 bg-gradient-to-br from-slate-800 to-slate-600 flex items-center justify-center text-4xl text-white">
+                        {isFolder ? '📁' : getFileIcon(item.mimeType)}
+                      </div>
+                    </button>
+
+                    <div className="p-4 space-y-2">
+                      {showInlineRename ? (
                         <div className="flex items-center gap-2">
-                          {item.type === 'folder' ? '-' : fileService.formatFileSize(item.size)}
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRename(item);
+                              if (e.key === 'Escape') setEditingItemId(null);
+                            }}
+                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleRename(item)}
+                            className="text-green-600 hover:text-green-700 text-sm"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            onClick={() => setEditingItemId(null)}
+                            className="text-red-600 hover:text-red-700 text-sm"
+                          >
+                            ✕
+                          </button>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(item.modified || item.created).toLocaleDateString('da-DK')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex justify-end gap-2">
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={onPrimaryClick}
+                          className="block w-full text-left"
+                        >
+                          <h3 className="text-sm font-semibold text-slate-900 line-clamp-2 group-hover:text-blue-600">
+                            {title}
+                          </h3>
+                        </button>
+                      )}
+
+                      {description && (
+                        <p className="text-xs text-slate-500 line-clamp-2">
+                          {description}
+                        </p>
+                      )}
+
+                      <div className="flex justify-between items-center text-[11px] text-slate-500 pt-1">
+                        <span>{sizeLabel}</span>
+                        {dateLabel && (
+                          <span>
+                            {new Date(dateLabel).toLocaleDateString('da-DK')}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-2">
+                        <div className="flex gap-2">
                           {item.type === 'file' && (
                             <button
                               onClick={() => handleDownload(item)}
-                              className="text-blue-600 hover:text-blue-700"
+                              className="text-xs text-blue-600 hover:text-blue-700"
                               title="Download"
                             >
                               ⬇️
@@ -642,7 +660,7 @@ function BoxDetail() {
                             <>
                               <button
                                 onClick={() => handleOpenMetadata(item)}
-                                className="text-purple-600 hover:text-purple-700"
+                                className="text-xs text-purple-600 hover:text-purple-700"
                                 title="Rediger metadata (titel, beskrivelse, tags)"
                               >
                                 📋
@@ -652,26 +670,28 @@ function BoxDetail() {
                                   setEditingItemId(item.path);
                                   setEditName(item.name);
                                 }}
-                                className="text-gray-600 hover:text-gray-700"
+                                className="text-xs text-slate-600 hover:text-slate-800"
                                 title="Omdøb"
                               >
                                 ✏️
                               </button>
-                              <button
-                                onClick={() => handleDelete(item)}
-                                className="text-red-600 hover:text-red-700"
-                                title="Slet"
-                              >
-                                🗑️
-                              </button>
                             </>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleDelete(item)}
+                            className="text-xs text-red-600 hover:text-red-700"
+                            title="Slet"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1085,6 +1105,17 @@ function BoxDetail() {
           </div>
         )}
       </div>
+
+      {/* Nøgle-/adgangspanel for denne kasse/mappe */}
+      {accessTarget && (
+        <AccessKeyPanel
+          isOpen={!!accessTarget}
+          onClose={() => setAccessTarget(null)}
+          boxId={box.id}
+          folderPath={accessTarget.folderPath}
+          objectLabel={accessTarget.label}
+        />
+      )}
     </div>
   );
 }

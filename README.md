@@ -1,6 +1,6 @@
 # DFLelev v2.0 — AI Context README
 
-> **Til AI-assistenter:** Læs hele dette dokument før du foreslår kodeændringer. Opdater denne fil ved ændringer: tilføj nye/slettede filer, endpoints, dataflow og dependencies. Changelog må kun indeholde den **nyeste** version — slet ældre versioner.
+> **Til AI-assistenter:** Læs hele dette dokument før du foreslår kodeændringer. Opdater denne fil ved ændringer: tilføj nye/slettede filer, endpoints, dataflow og dependencies. Changelog og slettede filler må kun indeholde info fra den **nyeste** version — slet ældre versioner.
 
 ---
 

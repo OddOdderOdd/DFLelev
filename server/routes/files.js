@@ -59,11 +59,25 @@ async function hasFolderAccess(boxId, userId, targetPath = '', mode = 'view') {
   const roles = await getUserRoles(userId);
   if (roles.includes('Admin') || roles.includes('Owner')) return true;
   if (!roles.length) return false;
+  const pathChain = parentPaths(targetPath);
 
-  const rules = await prisma.folderAccessRule.findMany({ where: { boxId, folderPath: { in: parentPaths(targetPath) }, rolle: { in: roles } } });
-  if (!rules.length) return mode === 'view';
-  const allowView = rules.some((r) => r.canView);
-  const allowEdit = rules.some((r) => r.canEdit);
+  // Hent alle regler på den aktuelle sti + forældre
+  const allRules = await prisma.folderAccessRule.findMany({
+    where: {
+      boxId,
+      folderPath: { in: pathChain },
+    }
+  });
+
+  // Ingen regler noget sted i kæden → åben læseadgang som standard
+  if (!allRules.length) return mode === 'view';
+
+  // Når der findes regler, er objektet "låst ned" og kun roller med eksplicit regel kan se/redigere
+  const roleRules = allRules.filter((r) => roles.includes(r.rolle));
+  if (!roleRules.length) return false;
+
+  const allowView = roleRules.some((r) => r.canView);
+  const allowEdit = roleRules.some((r) => r.canEdit);
   return mode === 'edit' ? allowEdit : allowView;
 }
 

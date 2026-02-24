@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { listBoxes, createBox, updateBox, deleteBox, getNasStatus } from '../utils/fileService';
+import { listBoxes, createBox, updateBox, deleteBox, getNasStatus, getBoxesSummary, formatFileSize } from '../utils/fileService';
+import AccessKeyPanel from '../components/AccessKeyPanel';
 
 function Arkiv() {
   const { isAdmin } = useAdmin();
   const [boxes, setBoxes] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState('recent');
+  const [showInfo, setShowInfo] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingBox, setEditingBox] = useState(null);
   const [nasStatus, setNasStatus] = useState({ online: false, usingLocalStorage: false });
   const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+  const [isStatsLoading, setIsStatsLoading] = useState(false);
+  const [accessTarget, setAccessTarget] = useState(null);
   
   // Form state for ny kasse
   const [newBox, setNewBox] = useState({
@@ -42,10 +49,25 @@ function Arkiv() {
     }
   };
 
+  const loadStats = async () => {
+    setIsStatsLoading(true);
+    try {
+      const data = await getBoxesSummary(CATEGORY);
+      setStats(data);
+    } catch (error) {
+      console.error('❌ Kunne ikke hente box-statistik:', error);
+      setStats(null);
+    } finally {
+      setIsStatsLoading(false);
+    }
+  };
+
   const checkNasStatus = async () => {
     try {
       const status = await getNasStatus();
       setNasStatus(status);
+      // Hent statistik i samme omgang som status, så forsiden er klar når brugeren åbner "Mere info"
+      loadStats();
     } catch (error) {
       console.error('❌ NAS status fejl:', error);
     }
@@ -84,6 +106,34 @@ function Arkiv() {
       alert('Fejl ved oprettelse af kasse: ' + error.message);
     }
   };
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const filteredBoxes = boxes.filter((box) => {
+    if (!normalizedQuery) return true;
+    const title = (box.titel || '').toLowerCase();
+    const description = (box.beskrivelse || '').toLowerCase();
+    return title.includes(normalizedQuery) || description.includes(normalizedQuery);
+  });
+
+  const sortedBoxes = [...filteredBoxes].sort((a, b) => {
+    if (sortOption === 'title-asc') {
+      return (a.titel || '').localeCompare(b.titel || '', 'da');
+    }
+    if (sortOption === 'title-desc') {
+      return (b.titel || '').localeCompare(a.titel || '', 'da');
+    }
+    if (sortOption === 'files-desc') {
+      const aFiles = a._count?.files || 0;
+      const bFiles = b._count?.files || 0;
+      return bFiles - aFiles;
+    }
+    if (sortOption === 'oldest') {
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    }
+    // recent (default)
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
 
   const handleEditBox = async () => {
     if (!editingBox || !editingBox.titel.trim()) {
@@ -163,22 +213,101 @@ function Arkiv() {
     <div className="min-h-screen bg-slate-50 pt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8">
           <div>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Arkiv</h1>
             <p className="text-gray-600">
-              Centrale dokumenter og politikker - {nasStatus.usingLocalStorage ? '💻 Lokal Storage' : '💾 NAS Storage'}
+              Centrale dokumenter og politikker for DFLelev.
             </p>
           </div>
-          {isAdmin && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-            >
-              + Opret Kasse
-            </button>
-          )}
+          <div className="w-full md:w-auto space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Søg i kasser (titel og beskrivelse)..."
+                  className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-300 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                />
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">
+                  🔍
+                </span>
+              </div>
+              <select
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value)}
+                className="sm:w-52 px-3 py-2 rounded-xl border border-slate-300 bg-white/80 backdrop-blur-sm shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="recent">Nyeste først</option>
+                <option value="oldest">Ældste først</option>
+                <option value="title-asc">Titel (A-Å)</option>
+                <option value="title-desc">Titel (Å-A)</option>
+                <option value="files-desc">Flest filer</option>
+              </select>
+            </div>
+            <div className="flex justify-between items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowInfo((prev) => !prev)}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors ${
+                  showInfo
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                <span>ℹ️ Mere info</span>
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="inline-flex justify-center items-center bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
+                >
+                  + Opret kasse
+                </button>
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* Mere info panel */}
+        {showInfo && (
+          <div className="mb-6 bg-white/80 backdrop-blur border border-slate-200 rounded-2xl p-4 shadow-sm">
+            {isStatsLoading || !stats ? (
+              <p className="text-sm text-slate-500">Indlæser overblik over arkivet...</p>
+            ) : (
+              <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">📦</span>
+                  <span>
+                    <span className="font-semibold">{stats.boxCount}</span> kasser
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">📁</span>
+                  <span>
+                    <span className="font-semibold">{stats.folderCount}</span> undermapper
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">📄</span>
+                  <span>
+                    <span className="font-semibold">{stats.fileCount}</span> filer
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">💾</span>
+                  <span>
+                    Samlet størrelse:{' '}
+                    <span className="font-semibold">
+                      {formatFileSize(stats.totalBytes)}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Storage Status Banner */}
         {nasStatus.usingLocalStorage && (
@@ -194,27 +323,44 @@ function Arkiv() {
         )}
 
         {/* Kasser Grid */}
-        {boxes.length === 0 ? (
+        {sortedBoxes.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-8xl mb-4">📦</div>
             <h2 className="text-2xl font-bold text-gray-700 mb-2">Ingen kasser endnu</h2>
             <p className="text-gray-500 mb-6">
-              {isAdmin ? 'Klik på "Opret Kasse" for at komme i gang' : 'Der er ingen arkiv-kasser tilgængelige'}
+              {searchQuery
+                ? 'Ingen kasser matcher din søgning.'
+                : isAdmin
+                  ? 'Klik på "Opret kasse" for at komme i gang'
+                  : 'Der er ingen arkiv-kasser tilgængelige'}
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {boxes.map((box) => (
+            {sortedBoxes.map((box) => (
               <div
                 key={box.id}
                 className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all group relative"
               >
-                {/* Storage Badge */}
-                <div className="absolute top-3 right-3 z-10">
-                  <span className="bg-gray-700 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1">
-                    {nasStatus.usingLocalStorage ? '💻 Lokal' : '💾 NAS'}
-                  </span>
-                </div>
+                {/* Admin key / actions badge */}
+                {isAdmin && (
+                  <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAccessTarget({
+                          boxId: box.id,
+                          folderPath: '',
+                          label: box.titel || 'Kasse',
+                        })
+                      }
+                      className="rounded-full bg-white/90 border border-slate-200 shadow-sm px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-1"
+                      title="Styr adgang til denne kasse"
+                    >
+                      <span>🔑</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Thumbnail */}
                 <Link to={`/arkiv/${box.id}`}>
@@ -312,24 +458,6 @@ function Arkiv() {
                   onChange={(e) => setNewBox({ ...newBox, farve: e.target.value })}
                   className="w-20 h-10 rounded cursor-pointer"
                 />
-              </div>
-
-              {/* Storage Info */}
-              <div className="mb-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <div className="flex items-start gap-2">
-                  <span className="text-lg">{nasStatus.usingLocalStorage ? '💻' : '💾'}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-blue-900 mb-1">
-                      {nasStatus.usingLocalStorage ? 'Lokal Storage' : 'NAS Storage'}
-                    </p>
-                    <p className="text-xs text-blue-700">
-                      {nasStatus.usingLocalStorage 
-                        ? 'Filer gemmes midlertidigt lokalt. Tilslut NAS for permanent lagring.'
-                        : 'Arkiv-kasser gemmes på NAS for sikker, lokal lagring.'
-                      }
-                    </p>
-                  </div>
-                </div>
               </div>
 
               {/* Thumbnail Upload */}
@@ -475,6 +603,17 @@ function Arkiv() {
           </div>
         )}
       </div>
+
+      {/* Nøgle-/adgangspanel */}
+      {accessTarget && (
+        <AccessKeyPanel
+          isOpen={!!accessTarget}
+          onClose={() => setAccessTarget(null)}
+          boxId={accessTarget.boxId}
+          folderPath={accessTarget.folderPath}
+          objectLabel={accessTarget.label}
+        />
+      )}
     </div>
   );
 }

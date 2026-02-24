@@ -41,7 +41,10 @@ router.get('/', async (req, res) => {
           select: { id: true, navn: true }
         },
         _count: {
-          select: { files: true }
+          select: {
+            files: true,
+            folders: true
+          }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -50,6 +53,41 @@ router.get('/', async (req, res) => {
     res.json(boxes);
   } catch (error) {
     console.error('List boxes error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+/**
+ * GET /api/boxes/summary?category=arkiv
+ * Aggregeret statistik for en kategori (bruges til "Mere info" på forsiden)
+ */
+router.get('/summary', requireAuth, async (req, res) => {
+  try {
+    const { category } = req.query;
+
+    if (!category || !['arkiv', 'ressourcer'].includes(category)) {
+      return res.status(400).json({ fejl: 'Ugyldig kategori' });
+    }
+
+    const [boxCount, folderCount, fileAgg] = await Promise.all([
+      prisma.box.count({ where: { category } }),
+      prisma.folder.count({ where: { box: { category } } }),
+      prisma.file.aggregate({
+        where: { box: { category } },
+        _count: { _all: true },
+        _sum: { stoerrelse: true }
+      })
+    ]);
+
+    res.json({
+      category,
+      boxCount,
+      folderCount,
+      fileCount: fileAgg._count?._all ?? 0,
+      totalBytes: Number(fileAgg._sum?.stoerrelse ?? 0n)
+    });
+  } catch (error) {
+    console.error('Boxes summary error:', error);
     res.status(500).json({ fejl: 'Server fejl' });
   }
 });
