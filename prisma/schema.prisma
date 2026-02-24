@@ -178,6 +178,7 @@ model Folder {
   navn          String
   titel         String?  // Display title (kan være anderledes end navn)
   beskrivelse   String?
+  billede       String?
 
   // Path tracking
   parentId      String?

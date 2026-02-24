@@ -117,7 +117,7 @@ ${DFLELEV_STORAGE_ROOT:-./storage}/
 - `PUT /admin/rettigheder` — opdater rettigheder (admin)
 
 **Boxes `/api/boxes/*`**
-- `GET /?category=arkiv` — list boxes
+- `GET /?category=arkiv&q=term` — list boxes (inkl. dyb søgning i mapper/filer via `q`)
 - `GET /:id` — hent én box
 - `POST /` — opret box
 - `PUT /:id` — opdater box
@@ -130,6 +130,8 @@ ${DFLELEV_STORAGE_ROOT:-./storage}/
 - `DELETE /:boxId/*` — slet fil/mappe
 - `POST /create-folder` — opret mappe
 - `PUT /rename` — omdøb fil/mappe
+- `PUT /metadata/folder` — opdater mappe-metadata (titel, beskrivelse, billede)
+- `PUT /metadata/file` — opdater fil-metadata (titel, beskrivelse, tags)
 
 **Admin `/api/admin/*`**
 - `GET /afventer` — ventende brugere
@@ -164,6 +166,10 @@ ${DFLELEV_STORAGE_ROOT:-./storage}/
 - `fileService.js` læser token fra `localStorage` under nøglen `'dfl_token'`
 - Admin/Owner (`intern: true`) ekskluderes fra myndigheder-dropdown i `OpretKonto.jsx`
 - `BoxDetail.jsx` bruger `/api/files/sync/:boxId` til fillister — ingen `.meta.json`
+- "Mere info" på Arkiv/Ressourcer vises både som samlet panel og per-kasse (undermapper, filer, størrelse)
+- Box-søgning understøtter dyb (rekursiv) match mod box, mapper og filer via backend
+- Nøgle-objekter på kasse-niveau registreres automatisk i Permission-systemet (`rolle: box:<id>`) ved oprettelse/opdatering og fjernes ved sletning
+- Nøgle-panelet bruger samme aktive roller som Rettigheder & Roller og ligger over topmenuen via højere z-index
 - Rolle-sletning kræver to forskellige admins (to-admin-bekræftelsesflow)
 - `RettighederAdmin.jsx` har to faner: "🔑 Rettigheder" og "🏷️ Rolle-katalog"
 

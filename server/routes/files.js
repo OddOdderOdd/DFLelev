@@ -58,7 +58,7 @@ function parentPaths(pathValue = '') {
 async function hasFolderAccess(boxId, userId, targetPath = '', mode = 'view') {
   const roles = await getUserRoles(userId);
   if (roles.includes('Admin') || roles.includes('Owner')) return true;
-  if (!roles.length) return false;
+  if (!roles.length) return mode === 'view';
   const pathChain = parentPaths(targetPath);
 
   // Hent alle regler på den aktuelle sti + forældre
@@ -110,6 +110,8 @@ async function scanDirectory(boxId, dirPath, currentPath = '', boxCategory) {
         const folderMeta = {
           navn: entry,
           titel: entry,
+          beskrivelse: '',
+          billede: '',
           sti: relativePath,
           createdAt: stats.birthtime
         };
@@ -644,6 +646,60 @@ router.put('/rename', requireAuth, async (req, res) => {
   }
 });
 
+
+
+router.put('/metadata/folder', requireAuth, async (req, res) => {
+  try {
+    const { boxId, folderPath, titel, beskrivelse, billede } = req.body;
+    if (!boxId || !folderPath) return res.status(400).json({ fejl: 'boxId og folderPath er påkrævet' });
+    const box = await prisma.box.findUnique({ where: { id: boxId } });
+    if (!box) return res.status(404).json({ fejl: 'Box ikke fundet' });
+    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'edit'))) return;
+
+    const folder = await prisma.folder.updateMany({
+      where: { boxId, sti: folderPath },
+      data: {
+        titel: titel ?? undefined,
+        beskrivelse: beskrivelse ?? undefined,
+        billede: billede ?? undefined,
+      }
+    });
+
+    if (!folder.count) return res.status(404).json({ fejl: 'Mappe ikke fundet' });
+    const updated = await prisma.folder.findFirst({ where: { boxId, sti: folderPath } });
+    res.json(updated);
+  } catch (error) {
+    console.error('Update folder metadata error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
+
+router.put('/metadata/file', requireAuth, async (req, res) => {
+  try {
+    const { boxId, filePath, titel, beskrivelse, tags } = req.body;
+    if (!boxId || !filePath) return res.status(400).json({ fejl: 'boxId og filePath er påkrævet' });
+    const box = await prisma.box.findUnique({ where: { id: boxId } });
+    if (!box) return res.status(404).json({ fejl: 'Box ikke fundet' });
+    const parentPath = filePath.includes('/') ? filePath.split('/').slice(0, -1).join('/') : '';
+    if (!(await ensureFolderAccess(req, res, box.id, parentPath, 'edit'))) return;
+
+    const updated = await prisma.file.updateMany({
+      where: { boxId, sti: filePath },
+      data: {
+        titel: titel ?? undefined,
+        beskrivelse: beskrivelse ?? undefined,
+        tags: tags ? JSON.stringify(tags) : undefined,
+      }
+    });
+
+    if (!updated.count) return res.status(404).json({ fejl: 'Fil ikke fundet' });
+    const file = await prisma.file.findFirst({ where: { boxId, sti: filePath } });
+    res.json(file);
+  } catch (error) {
+    console.error('Update file metadata error:', error);
+    res.status(500).json({ fejl: 'Server fejl' });
+  }
+});
 
 router.get('/access/:boxId', requireAuth, async (req, res) => {
   try {
