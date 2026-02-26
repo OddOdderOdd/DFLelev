@@ -49,6 +49,37 @@ function anonymizeIp(ip = '') {
   return crypto.createHash('sha256').update(String(ip)).digest('hex').slice(0, 16);
 }
 
+function buildDefaultKaldenavn(navn = '') {
+  const parts = String(navn)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return '';
+
+  const first = parts[0].replace(/\s+/g, '');
+  const initials = parts
+    .slice(1)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('');
+
+  return `${first}${initials}.`;
+}
+
+async function findUniqueKaldenavn(baseKaldenavn, excludeUserId = null) {
+  const base = String(baseKaldenavn || '').trim();
+  if (!base) return '';
+
+  let attempt = base;
+  let counter = 2;
+  while (true) {
+    const existing = await prisma.user.findUnique({ where: { kaldenavn: attempt } });
+    if (!existing || existing.id === excludeUserId) return attempt;
+    attempt = base.endsWith('.') ? `${base.slice(0, -1)}${counter}.` : `${base}${counter}.`;
+    counter += 1;
+  }
+}
+
 // Helper: Log activity
 async function logActivity(userId, handling, detaljer = {}) {
   try {
@@ -95,7 +126,6 @@ router.post('/opret', async (req, res) => {
 
     // Validation
     if (!navn?.trim()) return res.status(400).json({ fejl: 'Navn er påkrævet' });
-    if (!kaldenavn?.trim()) return res.status(400).json({ fejl: 'Kaldenavn er påkrævet' });
     if (!email?.trim()) return res.status(400).json({ fejl: 'E-mail er påkrævet' });
     if (!isValidEmail(email)) return res.status(400).json({ fejl: 'Ugyldig e-mail' });
     if (!kode) return res.status(400).json({ fejl: 'Kode er påkrævet' });
@@ -103,19 +133,18 @@ router.post('/opret', async (req, res) => {
     if (kode.length < 6) return res.status(400).json({ fejl: 'Koden skal være mindst 6 tegn' });
 
     const normalizedEmail = normalizeEmail(email);
-    const trimmedKaldenavn = String(kaldenavn).trim();
+    const manualKaldenavn = String(kaldenavn || '').trim();
+    const defaultKaldenavn = buildDefaultKaldenavn(navn);
+    const baseKaldenavn = manualKaldenavn || defaultKaldenavn;
+    if (!baseKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn kunne ikke udledes fra navnet' });
+    const trimmedKaldenavn = await findUniqueKaldenavn(baseKaldenavn);
 
-    const [existingEmail, existingKaldenavn] = await Promise.all([
+    const [existingEmail] = await Promise.all([
       prisma.user.findUnique({ where: { email: normalizedEmail } }),
-      prisma.user.findUnique({ where: { kaldenavn: trimmedKaldenavn } })
     ]);
 
     if (existingEmail) {
       return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
-    }
-
-    if (existingKaldenavn) {
-      return res.status(409).json({ fejl: 'Dette kaldenavn er allerede taget' });
     }
 
     const kodeHash = await hashPassword(kode);
@@ -380,28 +409,25 @@ router.put('/profil', requireAuth, async (req, res) => {
     if (!current) return res.status(404).json({ fejl: 'Bruger ikke fundet' });
 
     const nextEmail = email !== undefined ? normalizeEmail(email) : current.email;
-    const nextKaldenavn = kaldenavn !== undefined ? String(kaldenavn).trim() : current.kaldenavn;
+    const nextName = navn !== undefined ? String(navn).trim() : current.navn;
+    const rawKaldenavn = kaldenavn !== undefined ? String(kaldenavn).trim() : current.kaldenavn;
+    const nextKaldenavn = await findUniqueKaldenavn(rawKaldenavn || buildDefaultKaldenavn(nextName), req.user.id);
 
-    if (!nextKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn er påkrævet' });
+    if (!nextKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn kunne ikke udledes fra navnet' });
     if (!nextEmail || !isValidEmail(nextEmail)) return res.status(400).json({ fejl: 'Ugyldig e-mail' });
 
-    const [existingEmail, existingKaldenavn] = await Promise.all([
+    const [existingEmail] = await Promise.all([
       prisma.user.findUnique({ where: { email: nextEmail } }),
-      prisma.user.findUnique({ where: { kaldenavn: nextKaldenavn } })
     ]);
 
     if (existingEmail && existingEmail.id !== req.user.id) {
       return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
     }
 
-    if (existingKaldenavn && existingKaldenavn.id !== req.user.id) {
-      return res.status(409).json({ fejl: 'Dette kaldenavn er allerede taget' });
-    }
-
     const updated = await prisma.user.update({
       where: { id: req.user.id },
       data: {
-        navn: navn !== undefined ? String(navn).trim() : current.navn,
+        navn: nextName,
         kaldenavn: nextKaldenavn,
         email: nextEmail,
       },

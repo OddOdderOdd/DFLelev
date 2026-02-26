@@ -14,6 +14,7 @@ import GroupNode from './GroupNode';
 import DefaultNode from './DefaultNode';
 import InfoPanel from './InfoPanel';
 import { useAdmin } from '../../context/AdminContext';
+import { useAuth } from '../../context/AuthContext';
 
 // Try to import TinaCMS, but provide fallback if it fails
 let tinaClient, MINDMAP_QUERY, UPDATE_MINDMAP_MUTATION;
@@ -47,6 +48,43 @@ const DEFAULT_SIZE = {
   NODE_WIDTH: 150,
   NODE_HEIGHT: 36,
 };
+
+const DEFAULT_ACCESS_CONTROL = {
+  mindmapControlRoles: [],
+  nodeRules: {},
+};
+
+const DEFAULT_NODE_RULE = {
+  editContentRoles: [],
+  editColorRoles: [],
+  deleteNodeRoles: [],
+  editAssociationRoles: [],
+};
+
+function normalizeRoles(value) {
+  return Array.isArray(value) ? [...new Set(value.filter(Boolean).map((v) => String(v)))] : [];
+}
+
+function normalizeNodeRule(rule = {}) {
+  return {
+    editContentRoles: normalizeRoles(rule.editContentRoles),
+    editColorRoles: normalizeRoles(rule.editColorRoles),
+    deleteNodeRoles: normalizeRoles(rule.deleteNodeRoles),
+    editAssociationRoles: normalizeRoles(rule.editAssociationRoles),
+  };
+}
+
+function normalizeAccessControl(input = {}) {
+  const nodeRulesInput = input?.nodeRules && typeof input.nodeRules === 'object' ? input.nodeRules : {};
+  const nodeRules = {};
+  Object.entries(nodeRulesInput).forEach(([nodeId, rule]) => {
+    nodeRules[nodeId] = normalizeNodeRule(rule);
+  });
+  return {
+    mindmapControlRoles: normalizeRoles(input?.mindmapControlRoles),
+    nodeRules,
+  };
+}
 
 // Helper Functions
 function getNodeBounds(node, nodes) {
@@ -285,19 +323,58 @@ function serializeEdges(edges) {
 
 // Main Component
 const MindmapCanvas = () => {
-  const { isAdmin, isEditingText, toggleTextEdit } = useAdmin();
+  const { isAdmin, isEditingText, toggleTextEdit, setIsEditingText } = useAdmin();
+  const { bruger, erAdmin } = useAuth();
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedElement, setSelectedElement] = useState(null);
+  const [accessControl, setAccessControl] = useState(DEFAULT_ACCESS_CONTROL);
+  const [availableRoles, setAvailableRoles] = useState([]);
+  const [showMindmapKeyPanel, setShowMindmapKeyPanel] = useState(false);
   const [loadStatus, setLoadStatus] = useState('idle');
   const [saveStatus, setSaveStatus] = useState(null);
   const isPanning = useRef(false);
+
+  const userRoles = useMemo(
+    () => (bruger?.myndigheder || []).map((m) => m.rolle).filter(Boolean),
+    [bruger]
+  );
+
+  const hasAnyRoleAccess = useCallback(
+    (allowedRoles = []) => {
+      if (erAdmin) return true;
+      const allowedSet = new Set(normalizeRoles(allowedRoles));
+      if (!allowedSet.size) return false;
+      return userRoles.some((role) => allowedSet.has(role));
+    },
+    [erAdmin, userRoles]
+  );
+
+  const hasMindmapControl = useMemo(
+    () => hasAnyRoleAccess(accessControl.mindmapControlRoles),
+    [accessControl.mindmapControlRoles, hasAnyRoleAccess]
+  );
+
+  const canUseAdminTools = isAdmin && hasMindmapControl;
 
   // Load data on mount
   useEffect(() => {
     loadMindmapData();
   }, []);
+
+  useEffect(() => {
+    fetch('/api/auth/roller')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        if (Array.isArray(data) && data.length) {
+          setAvailableRoles(data);
+          return;
+        }
+        setAvailableRoles(['Admin', 'Owner', ...userRoles]);
+      })
+      .catch(() => setAvailableRoles(['Admin', 'Owner', ...userRoles]));
+  }, [userRoles]);
 
   const loadMindmapData = async () => {
     setLoadStatus('loading');
@@ -305,9 +382,14 @@ const MindmapCanvas = () => {
       // Try localStorage first
       const storedData = localStorage.getItem('mindmap_data');
       if (storedData) {
-        const { nodes: storedNodes, edges: storedEdges } = JSON.parse(storedData);
+        const {
+          nodes: storedNodes,
+          edges: storedEdges,
+          accessControl: storedAccessControl,
+        } = JSON.parse(storedData);
         setNodes(normalizeNodes(storedNodes));
         setEdges(normalizeEdges(storedEdges));
+        setAccessControl(normalizeAccessControl(storedAccessControl));
         setLoadStatus('success');
         return;
       }
@@ -323,6 +405,7 @@ const MindmapCanvas = () => {
         if (mindmapData) {
           setNodes(normalizeNodes(mindmapData.nodes || []));
           setEdges(normalizeEdges(mindmapData.edges || []));
+          setAccessControl(normalizeAccessControl(mindmapData.accessControl));
           setLoadStatus('success');
           return;
         }
@@ -331,11 +414,13 @@ const MindmapCanvas = () => {
       // Fallback to initial data
       setNodes(normalizeNodes(initialNodes));
       setEdges(normalizeEdges(initialEdges));
+      setAccessControl(DEFAULT_ACCESS_CONTROL);
       setLoadStatus('success');
     } catch (error) {
       console.error('Load error:', error);
       setNodes(normalizeNodes(initialNodes));
       setEdges(normalizeEdges(initialEdges));
+      setAccessControl(DEFAULT_ACCESS_CONTROL);
       setLoadStatus('error');
     }
   };
@@ -353,6 +438,7 @@ const MindmapCanvas = () => {
 
   const onConnect = useCallback(
     (connection) => {
+      if (!canUseAdminTools) return;
       const sourceNode = nodes.find((n) => n.id === connection.source);
       const targetNode = nodes.find((n) => n.id === connection.target);
 
@@ -374,7 +460,7 @@ const MindmapCanvas = () => {
 
       setEdges((eds) => addEdge(newEdge, eds));
     },
-    [nodes, setEdges]
+    [canUseAdminTools, nodes, setEdges]
   );
 
   const optimizedEdges = useMemo(() => {
@@ -426,7 +512,59 @@ const MindmapCanvas = () => {
     }, 100);
   }, []);
 
+  const getNodeRule = useCallback(
+    (nodeId) => normalizeNodeRule(accessControl.nodeRules?.[nodeId] || DEFAULT_NODE_RULE),
+    [accessControl.nodeRules]
+  );
+
+  const getNodeCapabilities = useCallback(
+    (nodeId) => {
+      const rule = getNodeRule(nodeId);
+      return {
+        canEditContent: hasAnyRoleAccess(rule.editContentRoles),
+        canEditColor: hasAnyRoleAccess(rule.editColorRoles),
+        canDeleteNode: hasAnyRoleAccess(rule.deleteNodeRoles),
+        canEditAssociation: hasAnyRoleAccess(rule.editAssociationRoles),
+      };
+    },
+    [getNodeRule, hasAnyRoleAccess]
+  );
+
+  const selectedNodeCapabilities = useMemo(() => {
+    if (selectedElement?.type !== 'node' || selectedElement?.data?.type === 'groupNode') {
+      return null;
+    }
+    return getNodeCapabilities(selectedElement.data.id);
+  }, [selectedElement, getNodeCapabilities]);
+
+  const canEditSelectedNodeText = !!selectedNodeCapabilities?.canEditContent || canUseAdminTools;
+
+  useEffect(() => {
+    if (!isEditingText) return;
+    if (!canEditSelectedNodeText) {
+      setIsEditingText(false);
+    }
+  }, [isEditingText, canEditSelectedNodeText, setIsEditingText]);
+
+  const handleMindmapControlRolesChange = useCallback((roles) => {
+    setAccessControl((prev) => ({
+      ...prev,
+      mindmapControlRoles: normalizeRoles(roles),
+    }));
+  }, []);
+
+  const handleNodePermissionChange = useCallback((nodeId, nextRule) => {
+    setAccessControl((prev) => ({
+      ...prev,
+      nodeRules: {
+        ...prev.nodeRules,
+        [nodeId]: normalizeNodeRule(nextRule),
+      },
+    }));
+  }, []);
+
   const handleAddNode = useCallback(() => {
+    if (!canUseAdminTools) return;
     const newNode = {
       id: `node_${Date.now()}`,
       type: 'default',
@@ -441,9 +579,10 @@ const MindmapCanvas = () => {
       draggable: true,
     };
     setNodes((nds) => [...nds, newNode]);
-  }, [setNodes]);
+  }, [canUseAdminTools, setNodes]);
 
   const handleAddGroup = useCallback(() => {
+    if (!canUseAdminTools) return;
     const newGroup = {
       id: `group_${Date.now()}`,
       type: 'groupNode',
@@ -459,7 +598,7 @@ const MindmapCanvas = () => {
       draggable: true,
     };
     setNodes((nds) => [...nds, newGroup]);
-  }, [setNodes]);
+  }, [canUseAdminTools, setNodes]);
 
   const handleAssignNodeToGroup = useCallback(
     (nodeId, groupId) => {
@@ -512,6 +651,12 @@ const MindmapCanvas = () => {
   const handleDelete = useCallback(() => {
     if (!selectedElement) return;
     if (selectedElement.type === 'node') {
+      if (selectedElement.data?.type === 'groupNode') {
+        if (!canUseAdminTools) return;
+      } else {
+        const caps = getNodeCapabilities(selectedElement.data.id);
+        if (!caps.canDeleteNode && !canUseAdminTools) return;
+      }
       setNodes((nds) => nds.filter((n) => n.id !== selectedElement.data.id));
       setEdges((eds) =>
         eds.filter(
@@ -521,14 +666,30 @@ const MindmapCanvas = () => {
         )
       );
     } else if (selectedElement.type === 'edge') {
+      if (!canUseAdminTools) return;
       setEdges((eds) => eds.filter((e) => e.id !== selectedElement.data.id));
     }
     setSelectedElement(null);
-  }, [selectedElement, setNodes, setEdges]);
+  }, [selectedElement, canUseAdminTools, getNodeCapabilities, setNodes, setEdges]);
 
   const handleNodeUpdate = useCallback(
     (updatedData) => {
       if (!selectedElement || selectedElement.type !== 'node') return;
+      if (selectedElement.data?.type !== 'groupNode' && !canUseAdminTools) {
+        const caps = getNodeCapabilities(selectedElement.data.id);
+        const isColorChange = ['borderColor', 'backgroundColor', 'textColor'].some(
+          (key) => Object.prototype.hasOwnProperty.call(updatedData, key)
+        );
+        const isAssociationChange = ['linkUrl', 'parentNode'].some((key) =>
+          Object.prototype.hasOwnProperty.call(updatedData, key)
+        );
+        const isContentChange = ['label', 'description'].some((key) =>
+          Object.prototype.hasOwnProperty.call(updatedData, key)
+        );
+        if ((isColorChange && !caps.canEditColor) || (isAssociationChange && !caps.canEditAssociation) || (isContentChange && !caps.canEditContent)) {
+          return;
+        }
+      }
       setNodes((nds) =>
         nds.map((n) =>
           n.id === selectedElement.data.id
@@ -537,19 +698,20 @@ const MindmapCanvas = () => {
         )
       );
     },
-    [selectedElement, setNodes]
+    [selectedElement, canUseAdminTools, getNodeCapabilities, setNodes]
   );
 
   const handleEdgeUpdate = useCallback(
     (updatedEdge) => {
       if (!selectedElement || selectedElement.type !== 'edge') return;
+      if (!canUseAdminTools) return;
       setEdges((eds) =>
         eds.map((e) =>
           e.id === selectedElement.data.id ? { ...e, ...updatedEdge } : e
         )
       );
     },
-    [selectedElement, setEdges]
+    [selectedElement, canUseAdminTools, setEdges]
   );
 
   // Save to TinaCMS or localStorage
@@ -559,6 +721,7 @@ const MindmapCanvas = () => {
       const dataToSave = {
         nodes: serializeNodes(nodes),
         edges: serializeEdges(edges),
+        accessControl: normalizeAccessControl(accessControl),
       };
 
       // Always save to localStorage
@@ -586,7 +749,7 @@ const MindmapCanvas = () => {
       console.log('Mindmap saved to localStorage (TinaCMS failed)');
     }
     setTimeout(() => setSaveStatus(null), 2500);
-  }, [nodes, edges]);
+  }, [nodes, edges, accessControl]);
 
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
@@ -621,96 +784,167 @@ const MindmapCanvas = () => {
             gap: '8px',
           }}
         >
-          <button
-            onClick={handleSaveData}
-            disabled={saveStatus === 'saving' || loadStatus === 'loading'}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: saveStatus === 'saving' || loadStatus === 'loading' ? 'wait' : 'pointer',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor:
-                saveStatus === 'success'
-                  ? '#16a34a'
+          {canUseAdminTools && (
+            <>
+              <button
+                onClick={handleSaveData}
+                disabled={saveStatus === 'saving' || loadStatus === 'loading'}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: saveStatus === 'saving' || loadStatus === 'loading' ? 'wait' : 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#fff',
+                  backgroundColor:
+                    saveStatus === 'success'
+                      ? '#16a34a'
+                      : saveStatus === 'error'
+                      ? '#ea580c'
+                      : '#3b82f6',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                  transition: 'background-color 0.2s',
+                  userSelect: 'none',
+                  opacity: saveStatus === 'saving' || loadStatus === 'loading' ? 0.7 : 1,
+                }}
+              >
+                {loadStatus === 'loading'
+                  ? '⏳ Henter...'
+                  : saveStatus === 'saving'
+                  ? '⏳ Gemmer...'
+                  : saveStatus === 'success'
+                  ? '✅ Gemt!'
                   : saveStatus === 'error'
-                  ? '#ea580c'
-                  : '#3b82f6',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-              transition: 'background-color 0.2s',
-              userSelect: 'none',
-              opacity: saveStatus === 'saving' || loadStatus === 'loading' ? 0.7 : 1,
-            }}
-          >
-            {loadStatus === 'loading'
-              ? '⏳ Henter...'
-              : saveStatus === 'saving'
-              ? '⏳ Gemmer...'
-              : saveStatus === 'success'
-              ? '✅ Gemt!'
-              : saveStatus === 'error'
-              ? '⚠️ Fejl ved gem'
-              : '💾 Gem Ændringer'}
-          </button>
+                  ? '⚠️ Fejl ved gem'
+                  : '💾 Gem Ændringer'}
+              </button>
 
-          <button
-            onClick={handleAddNode}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor: '#10b981',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-              transition: 'background-color 0.2s',
-              userSelect: 'none',
-            }}
-          >
-            ➕ Tilføj Node
-          </button>
+              <button
+                onClick={handleAddNode}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#fff',
+                  backgroundColor: '#10b981',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                  transition: 'background-color 0.2s',
+                  userSelect: 'none',
+                }}
+              >
+                ➕ Tilføj Node
+              </button>
 
-          <button
-            onClick={handleAddGroup}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor: '#6366f1',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-              transition: 'background-color 0.2s',
-              userSelect: 'none',
-            }}
-          >
-            🧩 Tilføj Gruppe
-          </button>
+              <button
+                onClick={handleAddGroup}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#fff',
+                  backgroundColor: '#6366f1',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                  transition: 'background-color 0.2s',
+                  userSelect: 'none',
+                }}
+              >
+                🧩 Tilføj Gruppe
+              </button>
+            </>
+          )}
 
-          <button
-            onClick={toggleTextEdit}
-            style={{
-              padding: '8px 14px',
-              borderRadius: '6px',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: '#fff',
-              backgroundColor: isEditingText ? '#f59e0b' : '#64748b',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-              transition: 'background-color 0.2s',
-              userSelect: 'none',
-            }}
-          >
-            {isEditingText ? '📝 Rediger tekst (aktiv)' : '📝 Rediger tekst'}
-          </button>
+          {(canEditSelectedNodeText || canUseAdminTools) && (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <button
+                onClick={toggleTextEdit}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#fff',
+                  backgroundColor: isEditingText ? '#f59e0b' : '#64748b',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                  transition: 'background-color 0.2s',
+                  userSelect: 'none',
+                }}
+              >
+                {isEditingText ? '📝 Rediger tekst (aktiv)' : '📝 Rediger tekst'}
+              </button>
+              {erAdmin && (
+                <button
+                  onClick={() => setShowMindmapKeyPanel((prev) => !prev)}
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    color: '#fff',
+                    backgroundColor: showMindmapKeyPanel ? '#0f766e' : '#475569',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                  }}
+                  title="Mindmap kontrol adgang"
+                >
+                  🔑
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {isAdmin && erAdmin && showMindmapKeyPanel && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 58,
+            left: 12,
+            zIndex: 11,
+            width: '300px',
+            background: '#ffffff',
+            border: '1px solid #cbd5e1',
+            borderRadius: '10px',
+            boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+            padding: '12px',
+          }}
+        >
+          <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
+            🔑 Mindmap kontrol
+          </div>
+          <div style={{ fontSize: '12px', color: '#475569', marginBottom: '8px' }}>
+            Roller her får adgang til alle admin-tools på mindmappet.
+          </div>
+          <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '6px' }}>
+            {availableRoles.map((rolle) => {
+              const checked = accessControl.mindmapControlRoles.includes(rolle);
+              return (
+                <label key={rolle} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      const current = new Set(accessControl.mindmapControlRoles);
+                      if (checked) current.delete(rolle);
+                      else current.add(rolle);
+                      handleMindmapControlRolesChange([...current]);
+                    }}
+                  />
+                  <span>{rolle}</span>
+                </label>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -734,8 +968,8 @@ const MindmapCanvas = () => {
           type: 'default',
           style: { strokeWidth: 2 },
         }}
-        nodesDraggable={true}
-        nodesConnectable={isAdmin}
+        nodesDraggable={canUseAdminTools}
+        nodesConnectable={canUseAdminTools}
         elementsSelectable={true}
       >
         <Background color="#aaa" gap={16} />
@@ -766,6 +1000,16 @@ const MindmapCanvas = () => {
           groupNodes={groupNodes}
           onAssignNodeToGroup={handleAssignNodeToGroup}
           onRemoveNodeFromGroup={handleRemoveNodeFromGroup}
+          canUseMindmapControl={canUseAdminTools}
+          canConfigurePermissions={isAdmin && erAdmin}
+          availableRoles={availableRoles}
+          nodePermissionRule={
+            selectedElement?.type === 'node' && selectedElement?.data?.type !== 'groupNode'
+              ? getNodeRule(selectedElement.data.id)
+              : null
+          }
+          nodeCapabilities={selectedNodeCapabilities}
+          onNodePermissionChange={handleNodePermissionChange}
         />
       )}
     </div>

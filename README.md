@@ -42,7 +42,18 @@
     ├── public/
     └── src/
         ├── context/
-        │   └── AuthContext.jsx
+        │   ├── AuthContext.jsx
+        │   └── AdminContext.jsx
+        ├── components/
+        │   ├── AccessKeyPanel.jsx
+        │   ├── Layout/
+        │   │   └── Navigation.jsx
+        │   └── Mindmap/
+        │       ├── MindmapCanvas.jsx
+        │       ├── InfoPanel.jsx
+        │       ├── DefaultNode.jsx
+        │       ├── GroupNode.jsx
+        │       └── MindmapData.js
         ├── utils/
         │   └── fileService.js    # API-kald til filer (bruger 'dfl_token' fra localStorage)
         └── pages/
@@ -50,6 +61,8 @@
             ├── Ressourcer.jsx
             ├── BoxDetail.jsx
             ├── OpretKonto.jsx
+            ├── Mindmap.jsx
+            ├── Brugere.jsx
             └── RettighederAdmin.jsx
 ```
 
@@ -150,8 +163,8 @@ ${DFLELEV_STORAGE_ROOT:-./storage}/
 - `POST /sync` — sync fra UserAuthority
 - `POST /` — opret ny rolle
 - `PUT /:id/omdoeb` — omdøb + opdater overalt
-- `POST /:id/anmod-slet` — trin 1: anmod om sletning
-- `POST /:id/bekraeft-slet` — trin 2: ANDEN admin bekræfter
+- `POST /:id/anmod-slet` — direkte soft-delete (ingen ekstra godkendelse)
+- `POST /:id/bekraeft-slet` — legacy endpoint (beholdt for bagudkompatibilitet)
 - `POST /:id/annuller-slet` — annuller sletnings-anmodning
 - `POST /:id/gendan` — gendan soft-slettet rolle
 
@@ -170,8 +183,21 @@ ${DFLELEV_STORAGE_ROOT:-./storage}/
 - Box-søgning understøtter dyb (rekursiv) match mod box, mapper og filer via backend
 - Nøgle-objekter på kasse-niveau registreres automatisk i Permission-systemet (`rolle: box:<id>`) ved oprettelse/opdatering og fjernes ved sletning
 - Nøgle-panelet bruger samme aktive roller som Rettigheder & Roller og ligger over topmenuen via højere z-index
-- Rolle-sletning kræver to forskellige admins (to-admin-bekræftelsesflow)
 - `RettighederAdmin.jsx` har to faner: "🔑 Rettigheder" og "🏷️ Rolle-katalog"
+- Kaldenavn er valgfrit ved oprettelse/profil-redigering; hvis tomt autogenereres det som: første ord + initialer for efterfølgende ord + punktum (fx `Oskar Hansen Madsen` → `OskarHM.`)
+
+### Mindmap nøglefunktion (hvilke filer en AI skal bede om)
+- `web/src/components/Mindmap/MindmapCanvas.jsx`:
+  - top-toolbar med admin-tools, "📝 Rediger tekst" og 🔑 for "Mindmap kontrol"
+  - gem/indlæsning af `accessControl` sammen med noder/kanter
+  - rolle-evaluering for hvem der må bruge admin-tools
+- `web/src/components/Mindmap/InfoPanel.jsx`:
+  - node-sidepanel med 🔑 pr. node (ikke grupper/forbindelser)
+  - rolle-styring for: `Rediger indhold`, `Rediger farve`, `Slet node`, `Rediger association`
+- `web/src/context/AuthContext.jsx`:
+  - aktuelle brugerroller (`bruger.myndigheder`) og admin/owner-check (`erAdmin`)
+- `web/src/context/AdminContext.jsx`:
+  - admin-mode toggle (`isAdmin`) og tekst-redigeringstilstand (`isEditingText`)
 
 ---
 

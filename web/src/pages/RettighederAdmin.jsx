@@ -194,8 +194,6 @@ export default function RettighederAdmin() {
     if (!window.confirm(`Slet ${rolle}?`)) return;
     const svar = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/anmod-slet`, { method: 'POST', headers: { 'x-auth-token': token } });
     if (!svar.ok) return;
-    const bekraeft = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/bekraeft-slet`, { method: 'POST', headers: { 'x-auth-token': token } });
-    if (!bekraeft.ok) return;
 
     const next = { ...permissions };
     delete next[rolle];

@@ -390,7 +390,6 @@ export default function OpretKonto() {
     e.preventDefault();
     setFejl('');
     if (!form.navn.trim())    return setFejl('Angiv venligst dit fulde navn');
-    if (!form.kaldenavn.trim()) return setFejl('Angiv venligst et kaldenavn');
     if (!form.email.trim()) return setFejl('Angiv venligst din e-mailadresse');
     if (!form.aargang)        return setFejl('Vælg venligst din årgang');
     if (!form.kollegie)       return setFejl('Vælg venligst dit kollegie');
@@ -450,7 +449,7 @@ export default function OpretKonto() {
 
         <div className="bg-white border border-gray-200 rounded-2xl p-6">
           <h2 className="font-semibold mb-2">Rediger profil</h2>
-          <p className="text-xs text-gray-500 mb-3">Kaldenavnet er navnet andre ser dig som. Det behøver ikke være dit rigtige navn.</p>
+          <p className="text-xs text-gray-500 mb-3">Kaldenavn er valgfrit. Hvis feltet er tomt, laves det automatisk ud fra dit navn (fx "Oskar Hansen Madsen" → "OskarHM.").</p>
           <div className="grid gap-2">
             <input value={profilForm.navn} onChange={e => setProfilForm(prev => ({ ...prev, navn: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Navn" />
             <input value={profilForm.kaldenavn} onChange={e => setProfilForm(prev => ({ ...prev, kaldenavn: e.target.value }))} className="border rounded-xl px-3 py-2 text-sm" placeholder="Kaldenavn" />
@@ -525,12 +524,12 @@ export default function OpretKonto() {
             {/* Kaldenavn */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Kaldenavn <span className="text-red-500">*</span>
+                Kaldenavn (valgfrit)
               </label>
               <input type="text" value={form.kaldenavn} onChange={e => sætFelt('kaldenavn', e.target.value)}
-                placeholder="Navnet andre ser"
+                placeholder="Efterlad tom for auto-kaldenavn"
                 className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
-              <p className="text-xs text-gray-500 mt-1">Kaldenavnet er det navn andre brugere kommer til at se dig som.</p>
+              <p className="text-xs text-gray-500 mt-1">Auto-format: første ord + initialer for resten + punktum.</p>
             </div>
 
             {/* E-mail */}

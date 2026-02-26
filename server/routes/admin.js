@@ -3,6 +3,38 @@ import { prisma } from '../index.js';
 import { requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
+const SYSTEM_ROLLER = ['Admin', 'Owner'];
+
+function buildDefaultKaldenavn(navn = '') {
+  const parts = String(navn)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return '';
+
+  const first = parts[0].replace(/\s+/g, '');
+  const initials = parts
+    .slice(1)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('');
+
+  return `${first}${initials}.`;
+}
+
+async function findUniqueKaldenavn(baseKaldenavn, excludeUserId = null) {
+  const base = String(baseKaldenavn || '').trim();
+  if (!base) return '';
+
+  let attempt = base;
+  let counter = 2;
+  while (true) {
+    const existing = await prisma.user.findUnique({ where: { kaldenavn: attempt } });
+    if (!existing || existing.id === excludeUserId) return attempt;
+    attempt = base.endsWith('.') ? `${base.slice(0, -1)}${counter}.` : `${base}${counter}.`;
+    counter += 1;
+  }
+}
 
 // Helper: Log activity
 async function logActivity(userId, handling, detaljer = {}) {
@@ -192,22 +224,19 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ fejl: 'Bruger ikke fundet' });
     }
 
+    const nextName = navn !== undefined ? String(navn).trim() : user.navn;
     const nextEmail = email !== undefined ? String(email).trim().toLowerCase() : user.email;
-    const nextKaldenavn = kaldenavn !== undefined ? String(kaldenavn).trim() : user.kaldenavn;
+    const requestedKaldenavn = kaldenavn !== undefined ? String(kaldenavn).trim() : user.kaldenavn;
+    const nextKaldenavn = await findUniqueKaldenavn(requestedKaldenavn || buildDefaultKaldenavn(nextName), user.id);
 
-    if (!nextKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn er påkrævet' });
+    if (!nextKaldenavn) return res.status(400).json({ fejl: 'Kaldenavn kunne ikke udledes fra navnet' });
 
-    const [emailOwner, kaldenavnOwner] = await Promise.all([
+    const [emailOwner] = await Promise.all([
       prisma.user.findUnique({ where: { email: nextEmail } }),
-      prisma.user.findUnique({ where: { kaldenavn: nextKaldenavn } })
     ]);
 
     if (emailOwner && emailOwner.id !== user.id) {
       return res.status(409).json({ fejl: 'Denne e-mail er allerede registreret' });
-    }
-
-    if (kaldenavnOwner && kaldenavnOwner.id !== user.id) {
-      return res.status(409).json({ fejl: 'Dette kaldenavn er allerede taget' });
     }
 
     // Update user
@@ -218,7 +247,7 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
         aargang: aargang !== undefined ? aargang : user.aargang,
         note: note !== undefined ? note : user.note,
         aktiv: aktiv !== undefined ? aktiv : user.aktiv,
-        navn: navn !== undefined ? navn : user.navn,
+        navn: nextName,
         kaldenavn: nextKaldenavn,
         email: nextEmail
       }
@@ -436,8 +465,6 @@ router.get('/rettigheder', requireAdmin, async (req, res) => {
 // ROLLE-MANAGEMENT
 // ═══════════════════════════════════════════════════════════════════
 
-const SYSTEM_ROLLER = ['Admin', 'Owner'];
-
 /**
  * GET /api/admin/roller
  * Hent alle aktive roller (ekskl. Admin/Owner systemroller)
@@ -588,7 +615,7 @@ router.put('/roller/:rolleNavn/omdoeb', requireAdmin, async (req, res) => {
 
 /**
  * POST /api/admin/roller/:id/anmod-slet
- * Trin 1: Admin anmoder om sletning — kræver bekræftelse fra ANDEN admin
+ * Direkte soft-delete af rolle (ingen ekstra godkendelse)
  */
 router.post('/roller/:rolleNavn/anmod-slet', requireAdmin, async (req, res) => {
   try {
@@ -598,23 +625,17 @@ router.post('/roller/:rolleNavn/anmod-slet', requireAdmin, async (req, res) => {
     const opdateret = await prisma.rolle.update({
       where: { navn: req.params.rolleNavn },
       data: {
+        slettet: true,
+        slettetDato: new Date(),
+        slettetAfId: req.user.id,
         sletAnmodetAf: req.user.id,
         sletAnmodetAt: new Date(),
-        sletBekraeftet: false,
+        sletBekraeftet: true,
       },
     });
 
-    // Opret rødt flag så andre admins ser anmodningen
-    await prisma.redFlag.create({
-      data: {
-        userId: req.user.id,
-        grund: `ROLLE_SLET_ANMODNING: "${rolle.navn}"`,
-        detaljer: JSON.stringify({ rolleId: rolle.id, rolleNavn: rolle.navn }),
-      },
-    });
-
-    await logActivity(req.user.id, 'ADMIN_ANMOD_SLET_ROLLE', { rolle: rolle.navn });
-    res.json({ besked: `Sletning af "${rolle.navn}" afventer bekræftelse fra en anden administrator.`, rolle: opdateret });
+    await logActivity(req.user.id, 'ADMIN_SLET_ROLLE_DIREKTE', { rolle: rolle.navn });
+    res.json({ besked: `Rollen "${rolle.navn}" er slettet (soft-delete).`, rolle: opdateret });
   } catch (error) {
     console.error('Anmod slet rolle error:', error);
     res.status(500).json({ fejl: 'Server fejl' });
@@ -623,7 +644,7 @@ router.post('/roller/:rolleNavn/anmod-slet', requireAdmin, async (req, res) => {
 
 /**
  * POST /api/admin/roller/:id/bekraeft-slet
- * Trin 2: EN ANDEN admin bekræfter soft-delete
+ * Legacy endpoint fra tidligere 2-trins flow
  */
 router.post('/roller/:rolleNavn/bekraeft-slet', requireAdmin, async (req, res) => {
   try {
@@ -709,4 +730,3 @@ router.post('/roller/:id/gendan', requireAdmin, async (req, res) => {
 });
 
 export default router;
-
