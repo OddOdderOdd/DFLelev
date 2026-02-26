@@ -4,6 +4,7 @@ import path from 'path';
 import { prisma } from '../index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ARKIV_PATH, RESSOURCER_PATH } from '../index.js';
+import { removeAllObjectPermissionEntriesForBox, upsertObjectPermissionEntry } from '../utils/objectPermissions.js';
 
 const router = express.Router();
 
@@ -23,22 +24,12 @@ function generateBoxId(title) {
 }
 
 async function syncBoxPermissionEntry(box) {
-  const payload = {
-    rights: [],
-    __meta: {
-      kind: 'box',
-      parentRole: null,
-      canManageUnderRole: false,
-      scopeKind: box.category,
-      boxId: box.id,
-      objectType: 'box',
-    }
-  };
-
-  await prisma.permission.upsert({
-    where: { rolle: `box:${box.id}` },
-    update: { rettigheder: JSON.stringify(payload) },
-    create: { rolle: `box:${box.id}`, rettigheder: JSON.stringify(payload) }
+  await upsertObjectPermissionEntry(prisma, {
+    category: box.category,
+    boxId: box.id,
+    folderPath: '',
+    objectType: 'box',
+    objectLabel: box.titel || box.id,
   });
 }
 
@@ -343,7 +334,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       where: { id: req.params.id }
     });
 
-    await prisma.permission.deleteMany({ where: { rolle: `box:${box.id}` } });
+    await removeAllObjectPermissionEntriesForBox(prisma, box.id);
 
     // Log activity
     await prisma.activityLog.create({

@@ -11,7 +11,7 @@ import { getFolderAccessRules, saveFolderAccessRules } from '../utils/fileServic
  * - folderPath: 'Undermappe/...' for undermapper
  */
 function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
-  const { erAdmin } = useAuth();
+  const { erAdmin, token } = useAuth();
   const [alleRoller, setAlleRoller] = useState([]);
   const [rules, setRules] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,14 +27,23 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
       setIsLoading(true);
       setError('');
       try {
-        const [rollerRes, existingRules] = await Promise.all([
-          fetch('http://localhost:3001/api/auth/roller', { headers: { 'x-auth-token': localStorage.getItem('dfl_token') || '' } }).then((r) => (r.ok ? r.json() : [])),
+        const [rollerResult, rulesResult] = await Promise.allSettled([
+          fetch('/api/auth/roller', { headers: { 'x-auth-token': token || '' } }).then((r) => (r.ok ? r.json() : [])),
           getFolderAccessRules(boxId, folderPath || ''),
         ]);
         if (cancelled) return;
 
-        setAlleRoller(Array.isArray(rollerRes) ? rollerRes : []);
-        setRules(existingRules || []);
+        if (rollerResult.status === 'fulfilled') {
+          setAlleRoller(Array.isArray(rollerResult.value) ? rollerResult.value : []);
+        } else {
+          setAlleRoller([]);
+        }
+
+        if (rulesResult.status === 'fulfilled') {
+          setRules(rulesResult.value || []);
+        } else {
+          throw rulesResult.reason;
+        }
       } catch (e) {
         if (!cancelled) {
           console.error('❌ Kunne ikke hente adgangsdata:', e);
@@ -49,7 +58,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, boxId, folderPath, erAdmin]);
+  }, [isOpen, boxId, folderPath, erAdmin, token]);
 
   if (!isOpen) return null;
   if (!erAdmin) {
@@ -241,4 +250,3 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
 }
 
 export default AccessKeyPanel;
-

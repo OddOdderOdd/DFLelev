@@ -5,6 +5,11 @@ import { prisma } from '../index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import { ARKIV_PATH, RESSOURCER_PATH } from '../index.js';
+import {
+  removeObjectPermissionEntriesUnderFolder,
+  renameObjectPermissionEntriesForFolder,
+  upsertObjectPermissionEntry,
+} from '../utils/objectPermissions.js';
 
 const router = express.Router();
 
@@ -426,6 +431,8 @@ router.delete('/:boxId/*', requireAuth, async (req, res) => {
       });
 
       console.log(`🗑️ Deleted folder: ${box.category}/${boxId}/${filePath}`);
+
+      await removeObjectPermissionEntriesUnderFolder(prisma, { boxId, folderPath: filePath });
     } else {
       // Delete file
       fs.unlinkSync(fullPath);
@@ -510,6 +517,14 @@ router.post('/create-folder', requireAuth, async (req, res) => {
         sti: relativePath,
         createdBy: req.user.id
       }
+    });
+
+    await upsertObjectPermissionEntry(prisma, {
+      category: box.category,
+      boxId,
+      folderPath: relativePath,
+      objectType: 'folder',
+      objectLabel: titel || folderName,
     });
 
     // Log activity
@@ -616,6 +631,13 @@ router.put('/rename', requireAuth, async (req, res) => {
           data: { sti: updatedSti }
         });
       }
+
+      await renameObjectPermissionEntriesForFolder(prisma, {
+        boxId,
+        category: box.category,
+        oldFolderPath: oldPath,
+        newFolderPath: newPath,
+      });
     }
 
     // Log activity
@@ -667,6 +689,13 @@ router.put('/metadata/folder', requireAuth, async (req, res) => {
 
     if (!folder.count) return res.status(404).json({ fejl: 'Mappe ikke fundet' });
     const updated = await prisma.folder.findFirst({ where: { boxId, sti: folderPath } });
+    await upsertObjectPermissionEntry(prisma, {
+      category: box.category,
+      boxId,
+      folderPath,
+      objectType: 'folder',
+      objectLabel: updated?.titel || updated?.navn || folderPath.split('/').pop() || folderPath,
+    });
     res.json(updated);
   } catch (error) {
     console.error('Update folder metadata error:', error);
@@ -707,6 +736,19 @@ router.get('/access/:boxId', requireAuth, async (req, res) => {
     if (!box) return res.status(404).json({ fejl: 'Box ikke fundet' });
     const folderPath = String(req.query.folderPath || '');
     if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'view'))) return;
+    const folderMeta = folderPath
+      ? await prisma.folder.findFirst({
+        where: { boxId: box.id, sti: folderPath },
+        select: { titel: true, navn: true, sti: true },
+      })
+      : null;
+    await upsertObjectPermissionEntry(prisma, {
+      category: box.category,
+      boxId: box.id,
+      folderPath,
+      objectType: folderPath ? 'folder' : 'box',
+      objectLabel: folderMeta?.titel || folderMeta?.navn || (folderPath ? folderPath.split('/').pop() : box.titel) || box.id,
+    });
     const rules = await prisma.folderAccessRule.findMany({ where: { boxId: box.id, folderPath } });
     res.json(rules);
   } catch (error) {
@@ -728,6 +770,19 @@ router.put('/access/:boxId', requireAuth, async (req, res) => {
         data: rules.map((r) => ({ boxId: box.id, folderPath, rolle: r.rolle, canView: r.canView !== false, canEdit: !!r.canEdit }))
       });
     }
+    const folderMeta = folderPath
+      ? await prisma.folder.findFirst({
+        where: { boxId: box.id, sti: folderPath },
+        select: { titel: true, navn: true, sti: true },
+      })
+      : null;
+    await upsertObjectPermissionEntry(prisma, {
+      category: box.category,
+      boxId: box.id,
+      folderPath,
+      objectType: folderPath ? 'folder' : 'box',
+      objectLabel: folderMeta?.titel || folderMeta?.navn || (folderPath ? folderPath.split('/').pop() : box.titel) || box.id,
+    });
     const created = await prisma.folderAccessRule.findMany({ where: { boxId: box.id, folderPath } });
     res.json(created);
   } catch (error) {

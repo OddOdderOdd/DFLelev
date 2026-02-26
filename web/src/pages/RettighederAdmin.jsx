@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import AccessKeyPanel from '../components/AccessKeyPanel';
 
 const RETTIGHEDS_TRAE = [
   { id: 'home', label: 'Hjem', rights: ['side:home'], children: [] },
@@ -42,6 +43,7 @@ export default function RettighederAdmin() {
   const [nyRolleNavn, setNyRolleNavn] = useState('');
   const [aktivTab, setAktivTab] = useState('authority');
   const [aabenNode, setAabenNode] = useState(null);
+  const [accessTarget, setAccessTarget] = useState(null);
 
   const rollerMap = useMemo(() => Object.fromEntries(roller.map((r) => [r, true])), [roller]);
 
@@ -91,6 +93,32 @@ export default function RettighederAdmin() {
   const allowedRightsForChild = parentOverskriftConfig?.rights ? new Set(parentOverskriftConfig.rights || []) : null;
 
   const synligeRettigheder = RETTIGHEDS_TRAE;
+
+  const noegleObjekter = useMemo(() => {
+    return Object.entries(permissions)
+      .filter(([, cfg]) => cfg?.__meta?.kind === 'box' && !!cfg?.__meta?.boxId)
+      .map(([rolle, cfg]) => {
+        const meta = cfg.__meta || {};
+        return {
+          rolle,
+          boxId: meta.boxId,
+          folderPath: meta.folderPath || '',
+          objectType: meta.objectType || (meta.folderPath ? 'folder' : 'box'),
+          objectLabel: meta.objectLabel || (meta.folderPath ? meta.folderPath.split('/').pop() : rolle),
+          category: meta.scopeKind || null,
+        };
+      })
+      .sort((a, b) => {
+        const labelSort = a.objectLabel.localeCompare(b.objectLabel, 'da');
+        if (labelSort !== 0) return labelSort;
+        return a.folderPath.localeCompare(b.folderPath, 'da');
+      });
+  }, [permissions]);
+
+  async function hentRettigheder() {
+    const rettighederSvar = await fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } });
+    if (rettighederSvar.ok) setPermissions(normalizePermissions(await rettighederSvar.json()));
+  }
 
   useEffect(() => {
     if (!erAdmin) return;
@@ -244,7 +272,8 @@ export default function RettighederAdmin() {
   const tabLabel = { authority: 'Myndigheder', year: 'Årgange', dorm: 'Kollegie' };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
+    <>
+      <div className="min-h-screen bg-gray-50 py-12 px-4">
       <div className="max-w-6xl mx-auto space-y-4">
         <button onClick={() => navigate('/kontrolpanel')} className="text-sm text-gray-500">← Tilbage</button>
         <h1 className="text-3xl font-bold">Rettigheder & Roller</h1>
@@ -255,6 +284,32 @@ export default function RettighederAdmin() {
 
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-2xl border p-5 space-y-4">
+            <div className="space-y-2">
+              <h3 className="font-semibold">Nøgle-objekter</h3>
+              <div className="space-y-1 max-h-56 overflow-auto pr-1">
+                {noegleObjekter.length === 0 && (
+                  <p className="text-xs text-gray-500">Ingen registrerede nøgle-objekter endnu.</p>
+                )}
+                {noegleObjekter.map((obj) => (
+                  <div key={obj.rolle} className="flex items-center justify-between border rounded px-2 py-1">
+                    <div className="min-w-0">
+                      <p className="text-sm truncate">{obj.objectLabel}</p>
+                      <p className="text-[11px] text-gray-500 truncate">
+                        {obj.objectType === 'folder' ? `Mappe: ${obj.folderPath}` : `Kasse: ${obj.boxId}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setAccessTarget({ boxId: obj.boxId, folderPath: obj.folderPath, label: obj.objectLabel })}
+                      className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                      title="Rediger adgang"
+                    >
+                      🔑
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-2">
               <h3 className="font-semibold">{tabLabel[aktivTab]}</h3>
               <div className="flex gap-2">
@@ -334,6 +389,19 @@ export default function RettighederAdmin() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      {accessTarget && (
+        <AccessKeyPanel
+          isOpen={!!accessTarget}
+          onClose={async () => {
+            setAccessTarget(null);
+            await hentRettigheder();
+          }}
+          boxId={accessTarget.boxId}
+          folderPath={accessTarget.folderPath}
+          objectLabel={accessTarget.label}
+        />
+      )}
+    </>
   );
 }
