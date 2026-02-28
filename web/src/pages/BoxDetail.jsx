@@ -453,15 +453,17 @@ function BoxDetail() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowUploadModal(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                 >
-                  + Upload
+                  <span>🔑</span>
+                  <span>+ Upload</span>
                 </button>
                 <button
                   onClick={() => setShowCreateFolderModal(true)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                 >
-                  + Mappe
+                  <span>🔑</span>
+                  <span>+ Mappe</span>
                 </button>
               </div>
             )}

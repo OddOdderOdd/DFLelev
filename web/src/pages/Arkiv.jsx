@@ -259,9 +259,10 @@ function Arkiv() {
               {isAdmin && (
                 <button
                   onClick={() => setShowCreateModal(true)}
-                  className="inline-flex justify-center items-center bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
+                  className="inline-flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
                 >
-                  + Opret kasse
+                  <span>🔑</span>
+                  <span>+ Opret kasse</span>
                 </button>
               )}
             </div>

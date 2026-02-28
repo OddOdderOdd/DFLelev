@@ -5,7 +5,7 @@ import AccessKeyPanel from '../components/AccessKeyPanel';
 
 const RETTIGHEDS_TRAE = [
   { id: 'home', label: 'Hjem', rights: ['side:home'], children: [] },
-  { id: 'kontrolpanel', label: 'Kontrolpanel', rights: ['side:kontrolpanel', 'kp:log', 'kp:verify', 'kp:brugere', 'kp:rettigheder'], children: [] },
+  { id: 'kontrolpanel', label: 'Kontrolpanel', rights: [], children: [] },
   { id: 'mindmap', label: 'Mindmap', rights: ['side:mindmap', 'mindmap:save', 'mindmap:add-node', 'mindmap:add-group', 'mindmap:edit-text'], children: [] },
   { id: 'skolekort', label: 'Skolekort', rights: ['side:skolekort'], children: [] },
   { id: 'ressourcer', label: 'Ressourcer', rights: ['side:ressourcer', 'ressourcer:edit'], children: [{ id: 'ressourcer:mapper', label: 'Mapper & undermapper', rights: ['ressourcer:folder:edit', 'ressourcer:folder:create', 'ressourcer:folder:delete'] }] },
@@ -48,6 +48,7 @@ export default function RettighederAdmin() {
   const [aktivTab, setAktivTab] = useState('authority');
   const [aabenNode, setAabenNode] = useState(null);
   const [accessTarget, setAccessTarget] = useState(null);
+  const [validBoxIds, setValidBoxIds] = useState(null);
 
   const rollerMap = useMemo(() => Object.fromEntries(roller.map((r) => [r, true])), [roller]);
 
@@ -96,8 +97,6 @@ export default function RettighederAdmin() {
   const parentOverskriftConfig = parentOverskrift ? permissions[parentOverskrift] : null;
   const allowedRightsForChild = parentOverskriftConfig?.rights ? new Set(parentOverskriftConfig.rights || []) : null;
 
-  const synligeRettigheder = RETTIGHEDS_TRAE;
-
   const noegleObjekter = useMemo(() => {
     return Object.entries(permissions)
       .filter(([, cfg]) => cfg?.__meta?.kind === 'box' && !!cfg?.__meta?.boxId)
@@ -112,12 +111,31 @@ export default function RettighederAdmin() {
           category: meta.scopeKind || null,
         };
       })
+      .filter((obj) => !validBoxIds || validBoxIds.has(obj.boxId))
       .sort((a, b) => {
         const labelSort = a.objectLabel.localeCompare(b.objectLabel, 'da');
         if (labelSort !== 0) return labelSort;
         return a.folderPath.localeCompare(b.folderPath, 'da');
       });
-  }, [permissions]);
+  }, [permissions, validBoxIds]);
+
+  const objektSektionMap = useMemo(() => {
+    const map = {
+      arkiv: 'arkiv',
+      ressourcer: 'ressourcer',
+      mindmap: 'mindmap',
+      kontrolpanel: 'kontrolpanel',
+      home: 'home',
+      skolekort: 'skolekort',
+    };
+    return noegleObjekter.reduce((acc, obj) => {
+      const sectionId = map[obj.category] || null;
+      if (!sectionId) return acc;
+      if (!acc[sectionId]) acc[sectionId] = [];
+      acc[sectionId].push(obj);
+      return acc;
+    }, {});
+  }, [noegleObjekter]);
 
   async function hentRettigheder() {
     const rettighederSvar = await fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } });
@@ -133,6 +151,35 @@ export default function RettighederAdmin() {
       ]);
       if (rollerSvar.ok) setRoller(await rollerSvar.json());
       if (rettighederSvar.ok) setPermissions(normalizePermissions(await rettighederSvar.json()));
+    })();
+  }, [erAdmin, token]);
+
+  useEffect(() => {
+    if (!erAdmin) return;
+    (async () => {
+      try {
+        const [arkivSvar, ressourcerSvar] = await Promise.all([
+          fetch('/api/boxes?category=arkiv', { headers: { 'x-auth-token': token } }),
+          fetch('/api/boxes?category=ressourcer', { headers: { 'x-auth-token': token } }),
+        ]);
+        const ids = new Set();
+        if (arkivSvar.ok) {
+          const arkiv = await arkivSvar.json();
+          (Array.isArray(arkiv) ? arkiv : []).forEach((box) => {
+            if (box?.id) ids.add(box.id);
+          });
+        }
+        if (ressourcerSvar.ok) {
+          const ressourcer = await ressourcerSvar.json();
+          (Array.isArray(ressourcer) ? ressourcer : []).forEach((box) => {
+            if (box?.id) ids.add(box.id);
+          });
+        }
+        setValidBoxIds(ids);
+      } catch (error) {
+        console.error('Kunne ikke validere nøgle-objekter:', error);
+        setValidBoxIds(null);
+      }
     })();
   }, [erAdmin, token]);
 
@@ -287,32 +334,6 @@ export default function RettighederAdmin() {
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-2xl border p-5 space-y-4">
             <div className="space-y-2">
-              <h3 className="font-semibold">Nøgle-objekter</h3>
-              <div className="space-y-1 max-h-56 overflow-auto pr-1">
-                {noegleObjekter.length === 0 && (
-                  <p className="text-xs text-gray-500">Ingen registrerede nøgle-objekter endnu.</p>
-                )}
-                {noegleObjekter.map((obj) => (
-                  <div key={obj.rolle} className="flex items-center justify-between border rounded px-2 py-1">
-                    <div className="min-w-0">
-                      <p className="text-sm truncate">{obj.objectLabel}</p>
-                      <p className="text-[11px] text-gray-500 truncate">
-                        {obj.objectType === 'folder' ? `Mappe: ${obj.folderPath}` : `Kasse: ${obj.boxId}`}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setAccessTarget({ boxId: obj.boxId, folderPath: obj.folderPath, label: obj.objectLabel })}
-                      className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
-                      title="Rediger adgang"
-                    >
-                      🔑
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
               <h3 className="font-semibold">{tabLabel[aktivTab]}</h3>
               <div className="flex gap-2">
                 <input value={nyRolleNavn} onChange={(e) => setNyRolleNavn(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder={`Opret ${tabLabel[aktivTab].toLowerCase()}`} />
@@ -366,14 +387,53 @@ export default function RettighederAdmin() {
               </div>
             )}
             <div className="space-y-3">
-              {synligeRettigheder.map((node) => (
+              {RETTIGHEDS_TRAE.map((node) => {
+                const availableRights = node.rights.filter((r) => !allowedRightsForChild || allowedRightsForChild.has(r));
+                const nodeObjects = objektSektionMap[node.id] || [];
+                if (!availableRights.length && !nodeObjects.length) return null;
+
+                return (
                 <div key={node.id} className="border rounded-xl p-3">
-                  <button onClick={() => setAabenNode(aabenNode === node.id ? null : node.id)} className="text-sm font-medium">{node.label}</button>
-                  {aabenNode === node.id && (
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => {
+                        if (!availableRights.length) return;
+                        setAabenNode(aabenNode === node.id ? null : node.id);
+                      }}
+                      className={`text-sm font-medium ${availableRights.length ? 'hover:text-blue-700' : 'text-slate-700 cursor-default'}`}
+                    >
+                      {node.label}
+                    </button>
+                    {!!nodeObjects.length && (
+                      <span className="text-[11px] text-slate-500">{nodeObjects.length} nøgleobjekter</span>
+                    )}
+                  </div>
+
+                  {!!nodeObjects.length && (
+                    <div className="mt-2 space-y-1.5">
+                      {nodeObjects.map((obj) => (
+                        <div key={obj.rolle} className="flex items-center justify-between border rounded px-2 py-1">
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{obj.objectLabel}</p>
+                            <p className="text-[11px] text-gray-500 truncate">
+                              {obj.objectType === 'folder' ? `Mappe: ${obj.folderPath}` : `Kasse: ${obj.boxId}`}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setAccessTarget({ boxId: obj.boxId, folderPath: obj.folderPath, label: obj.objectLabel })}
+                            className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                            title="Rediger adgang"
+                          >
+                            🔑
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {availableRights.length > 0 && aabenNode === node.id && (
                     <div className="mt-2 space-y-2">
-                      {node.rights
-                        .filter((r) => !allowedRightsForChild || allowedRightsForChild.has(r))
-                        .map((r) => (
+                      {availableRights.map((r) => (
                           <label key={r} className="flex items-center gap-2 text-sm">
                             <input
                               type="checkbox"
@@ -386,7 +446,8 @@ export default function RettighederAdmin() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

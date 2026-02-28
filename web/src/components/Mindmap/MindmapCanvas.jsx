@@ -905,45 +905,93 @@ const MindmapCanvas = () => {
       )}
 
       {isAdmin && erAdmin && showMindmapKeyPanel && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 58,
-            left: 12,
-            zIndex: 11,
-            width: '300px',
-            background: '#ffffff',
-            border: '1px solid #cbd5e1',
-            borderRadius: '10px',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
-            padding: '12px',
-          }}
-        >
-          <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-            🔑 Mindmap kontrol
-          </div>
-          <div style={{ fontSize: '12px', color: '#475569', marginBottom: '8px' }}>
-            Roller her får adgang til alle admin-tools på mindmappet.
-          </div>
-          <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gap: '6px' }}>
-            {availableRoles.map((rolle) => {
-              const checked = accessControl.mindmapControlRoles.includes(rolle);
-              return (
-                <label key={rolle} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => {
-                      const current = new Set(accessControl.mindmapControlRoles);
-                      if (checked) current.delete(rolle);
-                      else current.add(rolle);
-                      handleMindmapControlRolesChange([...current]);
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, display: 'flex' }}>
+          <div
+            style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)' }}
+            onClick={() => setShowMindmapKeyPanel(false)}
+          />
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '380px',
+              height: '100%',
+              backgroundColor: '#ffffff',
+              boxShadow: '-4px 0 16px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '12px', letterSpacing: '0.04em', textTransform: 'uppercase', color: '#64748b', fontWeight: 600 }}>
+                  Mindmap adgang
+                </div>
+                <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                  🔑 Mindmap kontrol
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowMindmapKeyPanel(false)}
+                style={{
+                  border: 'none',
+                  backgroundColor: '#f1f5f9',
+                  color: '#475569',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                }}
+                title="Luk panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: '16px 20px', overflowY: 'auto', display: 'grid', gap: '10px' }}>
+              <div style={{ fontSize: '13px', color: '#475569' }}>
+                Roller her får adgang til alle admin-værktøjer på mindmappet.
+              </div>
+              {availableRoles.map((rolle) => {
+                const checked = accessControl.mindmapControlRoles.includes(rolle);
+                return (
+                  <label
+                    key={rolle}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      fontSize: '13px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      padding: '8px 10px',
+                      backgroundColor: checked ? '#f0fdfa' : '#ffffff',
                     }}
-                  />
-                  <span>{rolle}</span>
-                </label>
-              );
-            })}
+                  >
+                    <span>{rolle}</span>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const current = new Set(accessControl.mindmapControlRoles);
+                        if (checked) current.delete(rolle);
+                        else current.add(rolle);
+                        handleMindmapControlRolesChange([...current]);
+                      }}
+                    />
+                  </label>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
