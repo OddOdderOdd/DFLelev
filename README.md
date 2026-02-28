@@ -19,7 +19,7 @@
 /home/oskar/DFLelev/
 ├── package.json              # Root (workspaces: server, web)
 ├── node_modules/             # Shared dependencies
-├── create-admin.cjs          # Script til at oprette første admin-bruger
+├── create-admin.cjs          # Setup-script (dependencies + DB + første owner-bruger)
 │
 ├── prisma/
 │   ├── schema.prisma         # Database schema
@@ -113,7 +113,7 @@ ${DFLELEV_STORAGE_ROOT:-./storage}/
 *Statistik:*
 - `StorageStats` — storage-statistik per kategori
 
-**Hashing:** `sha256(kode + 'dfl_salt_2025')` — defineret i `auth.js` og `create-admin.cjs`.
+**Hashing:** Primært `bcrypt` (legacy SHA-256 understøttes fortsat ved login-migrering).
 
 **Bruger ID-format:** `"timestamp_xxxxx"` (genereres i `create-admin.cjs`).
 
@@ -221,17 +221,12 @@ npm run dev -w web           # Kun frontend
 **Første gang:**
 ```bash
 cd /home/oskar/DFLelev
-npm install
-sudo mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/database"
-sudo mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/Fysiske filer/Arkiv"
-sudo mkdir -p "${DFLELEV_STORAGE_ROOT:-./storage}/Fysiske filer/Ressourcer"
-sudo chown -R $USER:$USER "/mnt/koala/DFLelev akiv"
-npm run db:push
-node create-admin.cjs
-npm run dev
+npm run setup:backend
 ```
 
-**Standard login:** email `admin@dflelev.local`, kode `admin123`
+Scriptet installerer dependencies, opretter storage-mapper, kører Prisma (`db:generate` + `db:push`), opretter systemrollerne `Admin`/`Owner`, opretter/aktiverer første bruger som `Owner` og starter derefter appen.
+
+**Standard login:** email `admin@dflelev.local`, kode `admin123` (rolle: `Owner`)
 
 ---
 

@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w web\"",
     "start": "npm run start -w server",
+    "setup:backend": "node create-admin.cjs",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",

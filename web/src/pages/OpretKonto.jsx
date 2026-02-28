@@ -11,10 +11,7 @@ const CONFIG_KEY = 'dfl_opret_config';
 const DEFAULT_CONFIG = {
   aaargange: [],
   kollegier: [],
-  myndigheder: [
-    { id: 'm_admin', label: 'Admin', intern: true },
-    { id: 'm_owner', label: 'Owner', intern: true },
-  ],
+  myndigheder: [],
 };
 
 function loadConfig() {
@@ -125,9 +122,8 @@ function AdminKonfig({ config, onChange }) {
   }
 
   const faner = [
-    { key: 'aaargange',   emoji: '📅', label: 'Årgange' },
-    { key: 'kollegier',   emoji: '🏠', label: 'Kollegier' },
-    { key: 'myndigheder', emoji: '🏛️', label: 'Myndigheder' },
+    { key: 'aaargange', emoji: '📅', label: 'Årgange' },
+    { key: 'kollegier', emoji: '🏠', label: 'Kollegier' },
   ];
 
   return (
@@ -203,8 +199,8 @@ function AdminKonfig({ config, onChange }) {
         </div>
       )}
 
-      {/* ── Kollegier og Myndigheder (samme layout) ── */}
-      {(fane === 'kollegier' || fane === 'myndigheder') && (() => {
+      {/* ── Kollegier ── */}
+      {(fane === 'kollegier') && (() => {
         const liste = fane;
         return (
           <div>
