@@ -4,6 +4,7 @@ import { requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 const SYSTEM_ROLLER = ['Admin', 'Owner'];
+const RIGHT_CONFIRM_OWN_DELETE = 'admin:bekraeft-slet-egne';
 
 function buildDefaultKaldenavn(navn = '') {
   const parts = String(navn)
@@ -51,6 +52,37 @@ async function logActivity(userId, handling, detaljer = {}) {
   }
 }
 
+function extractRights(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object' && Array.isArray(payload.rights)) return payload.rights;
+  return [];
+}
+
+async function userHasRight(userId, right) {
+  const authorities = await prisma.userAuthority.findMany({
+    where: { userId },
+    select: { rolle: true },
+  });
+  const roles = authorities.map((a) => a.rolle).filter(Boolean);
+  if (!roles.length) return false;
+
+  const permissions = await prisma.permission.findMany({
+    where: { rolle: { in: roles } },
+    select: { rettigheder: true },
+  });
+
+  for (const perm of permissions) {
+    try {
+      const rights = extractRights(JSON.parse(perm.rettigheder));
+      if (rights.includes(right)) return true;
+    } catch {
+      // Ignore malformed rows and continue
+    }
+  }
+
+  return false;
+}
+
 /**
  * GET /api/admin/afventer
  * Hent brugere der afventer godkendelse
@@ -89,7 +121,7 @@ router.post('/godkend/:id', requireAdmin, async (req, res) => {
     const { justeret_myndigheder } = req.body;
 
     const bruger = await prisma.user.findUnique({
-      where: { navn: req.params.rolleNavn },
+      where: { id: req.params.id },
       include: { myndigheder: true }
     });
 
@@ -99,7 +131,7 @@ router.post('/godkend/:id', requireAdmin, async (req, res) => {
 
     // Update user
     const updated = await prisma.user.update({
-      where: { navn: req.params.rolleNavn },
+      where: { id: req.params.id },
       data: {
         aktiv: true,
         afventerGodkendelse: false,
@@ -241,7 +273,7 @@ router.put('/bruger/:id', requireAdmin, async (req, res) => {
 
     // Update user
     const updated = await prisma.user.update({
-      where: { navn: req.params.rolleNavn },
+      where: { id: req.params.id },
       data: {
         kollegie: kollegie !== undefined ? kollegie : user.kollegie,
         aargang: aargang !== undefined ? aargang : user.aargang,
@@ -337,7 +369,7 @@ router.get('/roedt-flag', requireAdmin, async (req, res) => {
 router.put('/roedt-flag/:id/resolve', requireAdmin, async (req, res) => {
   try {
     const flag = await prisma.redFlag.update({
-      where: { navn: req.params.rolleNavn },
+      where: { id: req.params.id },
       data: {
         resolved: true,
         resolvedAt: new Date(),
@@ -652,7 +684,10 @@ router.post('/roller/:rolleNavn/bekraeft-slet', requireAdmin, async (req, res) =
     if (!rolle || rolle.slettet) return res.status(404).json({ fejl: 'Rolle ikke fundet' });
     if (!rolle.sletAnmodetAf) return res.status(400).json({ fejl: 'Ingen sletnings-anmodning på denne rolle' });
     if (rolle.sletAnmodetAf === req.user.id) {
-      return res.status(403).json({ fejl: 'Du kan ikke bekræfte din egen sletnings-anmodning. En anden administrator skal gøre det.' });
+      const allowed = await userHasRight(req.user.id, RIGHT_CONFIRM_OWN_DELETE);
+      if (!allowed) {
+        return res.status(403).json({ fejl: 'Du kan ikke bekræfte din egen sletnings-anmodning uden rettigheden "Kan bekræfte slet, sine egne slet".' });
+      }
     }
 
     const opdateret = await prisma.rolle.update({

@@ -9,10 +9,14 @@ const RETTIGHEDS_TRAE = [
   { id: 'mindmap', label: 'Mindmap', rights: ['side:mindmap', 'mindmap:save', 'mindmap:add-node', 'mindmap:add-group', 'mindmap:edit-text'], children: [] },
   { id: 'skolekort', label: 'Skolekort', rights: ['side:skolekort'], children: [] },
   { id: 'ressourcer', label: 'Ressourcer', rights: ['side:ressourcer', 'ressourcer:edit'], children: [{ id: 'ressourcer:mapper', label: 'Mapper & undermapper', rights: ['ressourcer:folder:edit', 'ressourcer:folder:create', 'ressourcer:folder:delete'] }] },
-  { id: 'arkiv', label: 'Arkiv', rights: ['side:arkiv', 'arkiv:edit'], children: [{ id: 'arkiv:mapper', label: 'Mapper & undermapper', rights: ['arkiv:folder:edit', 'arkiv:folder:create', 'arkiv:folder:delete'] }] }
+  { id: 'arkiv', label: 'Arkiv', rights: ['side:arkiv', 'arkiv:edit'], children: [{ id: 'arkiv:mapper', label: 'Mapper & undermapper', rights: ['arkiv:folder:edit', 'arkiv:folder:create', 'arkiv:folder:delete'] }] },
+  { id: 'generale-rettigheder', label: 'Generale rettigheder', rights: ['admin:bekraeft-slet-egne'], children: [] }
 ];
 
 const DEFAULT_META = { kind: 'authority', parentRole: null, canManageUnderRole: false, scopeKind: null };
+const RIGHT_LABELS = {
+  'admin:bekraeft-slet-egne': 'Kan bekræfte slet, sine egne slet',
+};
 
 function normalizePermissions(data = {}) {
   const normalized = {};
@@ -376,7 +380,7 @@ export default function RettighederAdmin() {
                               checked={(aktivConfig.rights || []).includes(r)}
                               onChange={() => toggleRight(r)}
                             />
-                            <span>{r}</span>
+                            <span>{RIGHT_LABELS[r] || r}</span>
                           </label>
                         ))}
                     </div>

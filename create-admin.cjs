@@ -18,6 +18,9 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
+const ROOT_DIR = __dirname;
+process.chdir(ROOT_DIR);
+
 const args = Object.fromEntries(
   process.argv
     .slice(2)
@@ -51,6 +54,7 @@ const ALLE_RETTIGHEDER = [
   'fil:upload',
   'fil:slet',
   'fil:opret-mappe',
+  'admin:bekraeft-slet-egne',
 ];
 
 function run(cmd, cmdArgs) {
@@ -84,8 +88,35 @@ function parseEnvFile(envPath) {
   return out;
 }
 
+function ensureEnvFile() {
+  const envPath = path.resolve('.env');
+  const current = parseEnvFile(envPath);
+  const required = {
+    DATABASE_URL: 'file:/mnt/koala/DFLelevFiller/database/dflelev.db',
+    DFLELEV_STORAGE_ROOT: '/mnt/koala/DFLelevFiller',
+  };
+
+  let changed = false;
+  Object.entries(required).forEach(([key, value]) => {
+    if (!current[key] || !String(current[key]).trim()) {
+      current[key] = value;
+      changed = true;
+    }
+  });
+
+  if (!fs.existsSync(envPath) || changed) {
+    const lines = Object.entries(current).map(([key, value]) => {
+      const safe = String(value).replace(/"/g, '\\"');
+      return `${key}="${safe}"`;
+    });
+    fs.writeFileSync(envPath, `${lines.join('\n')}\n`, 'utf8');
+  }
+
+  return current;
+}
+
 function ensureStorageStructure() {
-  const envFromFile = parseEnvFile(path.resolve('.env'));
+  const envFromFile = ensureEnvFile();
   const storageRoot = process.env.DFLELEV_STORAGE_ROOT || envFromFile.DFLELEV_STORAGE_ROOT || '/mnt/koala/DFLelevFiller';
   const root = path.resolve(storageRoot);
 
@@ -219,6 +250,7 @@ async function setupDatabaseAndOwner() {
 
 async function main() {
   console.log('\nDFLelev backend setup\n');
+  console.log(`Projektmappe: ${ROOT_DIR}`);
   console.log(`E-mail:   ${CONFIG.email}`);
   console.log(`Navn:     ${CONFIG.navn}`);
   console.log(`Aargang:  ${CONFIG.aargang}`);

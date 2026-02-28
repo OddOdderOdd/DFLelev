@@ -20,6 +20,7 @@ export const ALLE_RETTIGHEDER = [
   { id: 'kp:log',             label: 'Kontrolpanel: Log (aktivitetslog)',     gruppe: 'Kontrolpanel' },
   { id: 'kp:brugere',         label: 'Kontrolpanel: Brugerstyring',          gruppe: 'Kontrolpanel' },
   { id: 'kp:rettigheder',     label: 'Kontrolpanel: Rettigheds-admin',       gruppe: 'Kontrolpanel' },
+  { id: 'admin:bekraeft-slet-egne', label: 'Generelt: Kan bekræfte slet, sine egne slet', gruppe: 'Generelt' },
   // Fil-handlinger
   { id: 'fil:upload',         label: 'Filer: Upload',       gruppe: 'Filer' },
   { id: 'fil:slet',           label: 'Filer: Slet',         gruppe: 'Filer' },

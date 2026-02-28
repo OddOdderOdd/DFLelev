@@ -165,6 +165,7 @@ model Box {
   // Relations
   files       File[]
   folders     Folder[]
+  accessRules FolderAccessRule[]
 
   @@unique([category, id])
   @@index([category])
@@ -193,7 +194,6 @@ model Folder {
 
   // Relations
   files         File[]
-  accessRules   FolderAccessRule[]
 
   @@unique([boxId, sti])
   @@index([boxId, parentId])
