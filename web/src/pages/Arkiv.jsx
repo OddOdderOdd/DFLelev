@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { listBoxes, createBox, updateBox, deleteBox, getNasStatus, getBoxesSummary, formatFileSize } from '../utils/fileService';
 import AccessKeyPanel from '../components/AccessKeyPanel';
 
 function Arkiv() {
   const { isAdmin } = useAdmin();
+  const navigate = useNavigate();
   const [boxes, setBoxes] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState('recent');
@@ -257,12 +258,22 @@ function Arkiv() {
                 <span>ℹ️ Mere info</span>
               </button>
               {isAdmin && (
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="inline-flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
-                >
-                  <span>+ Opret kasse</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/rettigheder-admin')}
+                    className="inline-flex justify-center items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
+                    title="Rettigheder & roller"
+                  >
+                    🔑
+                  </button>
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="inline-flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
+                  >
+                    <span>+ Opret kasse</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -340,27 +351,6 @@ function Arkiv() {
                 key={box.id}
                 className="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all group relative"
               >
-                {/* Admin key / actions badge */}
-                {isAdmin && (
-                  <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAccessTarget({
-                          boxId: box.id,
-                          folderPath: '',
-                          label: box.titel || 'Kasse',
-                          objectType: 'box',
-                        })
-                      }
-                      className="rounded-full bg-white/90 border border-slate-200 shadow-sm px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-1"
-                      title="Styr adgang til denne kasse"
-                    >
-                      <span>🔑</span>
-                    </button>
-                  </div>
-                )}
-
                 {/* Thumbnail */}
                 <Link to={`/arkiv/${box.id}`}>
                   <div
