@@ -53,6 +53,13 @@ const DEFAULT_ACCESS_CONTROL = {
   mindmapControlRoles: [],
   nodeRules: {},
 };
+const DEFAULT_ROLE_TABS = [
+  { id: 'authority', label: 'Myndigheder' },
+  { id: 'year', label: 'Årgange' },
+  { id: 'dorm', label: 'Kollegie' },
+];
+const DEFAULT_ROLE_META = { kind: 'authority', parentRole: null, canManageUnderRole: false, scopeKind: null };
+const TABS_META_ROLE = '__dfl_tabs__';
 
 const DEFAULT_NODE_RULE = {
   editContentRoles: [],
@@ -84,6 +91,62 @@ function normalizeAccessControl(input = {}) {
     mindmapControlRoles: normalizeRoles(input?.mindmapControlRoles),
     nodeRules,
   };
+}
+
+function normalizePermissions(input = {}) {
+  const normalized = {};
+  Object.entries(input || {}).forEach(([rolle, config]) => {
+    if (Array.isArray(config)) {
+      normalized[rolle] = { rights: config, __meta: { ...DEFAULT_ROLE_META } };
+      return;
+    }
+    normalized[rolle] = {
+      rights: config?.rights || [],
+      __meta: { ...DEFAULT_ROLE_META, ...(config?.__meta || {}) },
+    };
+  });
+  return normalized;
+}
+
+function normalizeTabId(input = '') {
+  const clean = String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9æøå]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return clean || 'authority';
+}
+
+function tabLabelFromId(id = '') {
+  if (!id) return 'Myndigheder';
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function extractRoleTabs(permissionMap = {}) {
+  const map = new Map(DEFAULT_ROLE_TABS.map((tab) => [tab.id, tab]));
+  const systemTabs = permissionMap[TABS_META_ROLE]?.__meta?.tabs;
+  if (Array.isArray(systemTabs)) {
+    systemTabs.forEach((tab) => {
+      const id = normalizeTabId(tab?.id || tab?.label || '');
+      if (!id) return;
+      map.set(id, { id, label: String(tab?.label || tabLabelFromId(id)) });
+    });
+  }
+  Object.values(permissionMap).forEach((cfg) => {
+    const meta = cfg?.__meta || {};
+    const candidate = meta.kind === 'box' ? meta.scopeKind : meta.kind;
+    const id = normalizeTabId(candidate || '');
+    if (!id || id === 'box' || id === 'role' || id === 'system') return;
+    map.set(id, { id, label: tabLabelFromId(id) });
+  });
+  return [...map.values()];
+}
+
+function getTabForRole(rolle, metaMap, tabs) {
+  const meta = metaMap[rolle] || DEFAULT_ROLE_META;
+  const candidate = meta.kind === 'box' ? (meta.scopeKind || 'authority') : (meta.kind || 'authority');
+  const id = normalizeTabId(candidate);
+  return tabs.some((tab) => tab.id === id) ? id : 'authority';
 }
 
 function mindmapRolesToRows(roles = []) {
@@ -345,6 +408,8 @@ const MindmapCanvas = () => {
   const [selectedElement, setSelectedElement] = useState(null);
   const [accessControl, setAccessControl] = useState(DEFAULT_ACCESS_CONTROL);
   const [availableRoles, setAvailableRoles] = useState([]);
+  const [permissionMap, setPermissionMap] = useState({});
+  const [roleTabs, setRoleTabs] = useState(DEFAULT_ROLE_TABS);
   const [mindmapPermissionRows, setMindmapPermissionRows] = useState([]);
   const [showMindmapKeyPanel, setShowMindmapKeyPanel] = useState(false);
   const [loadStatus, setLoadStatus] = useState('idle');
@@ -373,9 +438,21 @@ const MindmapCanvas = () => {
 
   const canUseAdminTools = isAdmin && hasMindmapControl;
 
+  const enrichMindmapRows = useCallback((rows = []) => {
+    return rows.map((row) => {
+      const tabId = getTabForRole(row.rolle, roleMetaMap, roleTabs);
+      const parentRole = roleMetaMap[row.rolle]?.parentRole || null;
+      return {
+        ...row,
+        uiTabId: tabId,
+        uiTopRole: parentRole || row.rolle,
+      };
+    });
+  }, [roleMetaMap, roleTabs]);
+
   useEffect(() => {
-    setMindmapPermissionRows(mindmapRolesToRows(accessControl.mindmapControlRoles));
-  }, [accessControl.mindmapControlRoles]);
+    setMindmapPermissionRows(enrichMindmapRows(mindmapRolesToRows(accessControl.mindmapControlRoles)));
+  }, [accessControl.mindmapControlRoles, enrichMindmapRows]);
 
   // Load data on mount
   useEffect(() => {
@@ -383,17 +460,70 @@ const MindmapCanvas = () => {
   }, []);
 
   useEffect(() => {
-    fetch('/api/auth/roller')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        if (Array.isArray(data) && data.length) {
-          setAvailableRoles(data);
-          return;
+    Promise.allSettled([fetch('/api/auth/roller'), fetch('/api/auth/rettigheder')])
+      .then(async ([rolesResult, permissionsResult]) => {
+        let roles = ['Admin', 'Owner', ...userRoles];
+        if (rolesResult.status === 'fulfilled' && rolesResult.value.ok) {
+          const roleData = await rolesResult.value.json();
+          if (Array.isArray(roleData) && roleData.length) {
+            roles = roleData;
+          }
         }
-        setAvailableRoles(['Admin', 'Owner', ...userRoles]);
+        setAvailableRoles([...new Set(roles.filter(Boolean))]);
+
+        if (permissionsResult.status === 'fulfilled' && permissionsResult.value.ok) {
+          const permissionData = await permissionsResult.value.json();
+          const nextPermissions = normalizePermissions(permissionData);
+          setPermissionMap(nextPermissions);
+          setRoleTabs(extractRoleTabs(nextPermissions));
+        } else {
+          setPermissionMap({});
+          setRoleTabs(DEFAULT_ROLE_TABS);
+        }
       })
-      .catch(() => setAvailableRoles(['Admin', 'Owner', ...userRoles]));
+      .catch(() => {
+        setAvailableRoles(['Admin', 'Owner', ...userRoles]);
+        setPermissionMap({});
+        setRoleTabs(DEFAULT_ROLE_TABS);
+      });
   }, [userRoles]);
+
+  const roleMetaMap = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(permissionMap).map(([rolle, cfg]) => [rolle, cfg?.__meta || { ...DEFAULT_ROLE_META }])
+      ),
+    [permissionMap]
+  );
+
+  const underRoller = useMemo(() => {
+    const result = {};
+    Object.entries(roleMetaMap).forEach(([rolle, meta]) => {
+      const parentRole = meta?.parentRole;
+      if (!parentRole) return;
+      if (!result[parentRole]) result[parentRole] = [];
+      result[parentRole].push(rolle);
+    });
+    Object.keys(result).forEach((key) => result[key].sort((a, b) => a.localeCompare(b, 'da')));
+    return result;
+  }, [roleMetaMap]);
+
+  const topRolesByTab = useMemo(() => {
+    const result = {};
+    roleTabs.forEach((tab) => {
+      result[tab.id] = [];
+    });
+    availableRoles.forEach((rolle) => {
+      if (rolle === TABS_META_ROLE) return;
+      const meta = roleMetaMap[rolle] || DEFAULT_ROLE_META;
+      if (meta.parentRole) return;
+      const tabId = getTabForRole(rolle, roleMetaMap, roleTabs);
+      if (!result[tabId]) result[tabId] = [];
+      result[tabId].push(rolle);
+    });
+    Object.keys(result).forEach((key) => result[key].sort((a, b) => a.localeCompare(b, 'da')));
+    return result;
+  }, [availableRoles, roleMetaMap, roleTabs]);
 
   const loadMindmapData = async () => {
     setLoadStatus('loading');
@@ -579,7 +709,9 @@ const MindmapCanvas = () => {
 
   const addMindmapPermissionRole = useCallback(() => {
     const used = new Set(mindmapPermissionRows.map((row) => row.rolle));
-    const nextRole = availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
+    const defaultTabId = roleTabs[0]?.id || 'authority';
+    const topRoles = topRolesByTab[defaultTabId] || [];
+    const nextRole = topRoles.find((rolle) => !used.has(rolle)) || availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
     if (!nextRole) return;
     updateMindmapPermissionRows([
       ...mindmapPermissionRows,
@@ -587,16 +719,36 @@ const MindmapCanvas = () => {
         id: `mindmap-${nextRole}-${Date.now()}`,
         rolle: nextRole,
         canControlMindmap: true,
+        uiTabId: getTabForRole(nextRole, roleMetaMap, roleTabs),
+        uiTopRole: roleMetaMap[nextRole]?.parentRole || nextRole,
       },
     ]);
-  }, [mindmapPermissionRows, availableRoles, updateMindmapPermissionRows]);
+  }, [mindmapPermissionRows, availableRoles, roleTabs, topRolesByTab, roleMetaMap, updateMindmapPermissionRows]);
 
   const updateMindmapPermissionRow = useCallback((index, patch) => {
-    const nextRows = mindmapPermissionRows.map((row, rowIndex) =>
-      rowIndex === index ? { ...row, ...patch } : row
-    );
+    const nextRows = mindmapPermissionRows.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      const next = { ...row, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, 'uiTabId')) {
+        const tabTopRoles = topRolesByTab[patch.uiTabId] || [];
+        const nextTop = tabTopRoles[0] || next.uiTopRole || next.rolle;
+        const children = underRoller[nextTop] || [];
+        return {
+          ...next,
+          uiTabId: patch.uiTabId,
+          uiTopRole: nextTop,
+          rolle: children.includes(next.rolle) || next.rolle === nextTop ? next.rolle : nextTop,
+        };
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'uiTopRole')) {
+        const children = underRoller[patch.uiTopRole] || [];
+        const resolvedRole = children.includes(next.rolle) ? next.rolle : patch.uiTopRole;
+        return { ...next, uiTopRole: patch.uiTopRole, rolle: resolvedRole };
+      }
+      return next;
+    });
     updateMindmapPermissionRows(nextRows);
-  }, [mindmapPermissionRows, updateMindmapPermissionRows]);
+  }, [mindmapPermissionRows, topRolesByTab, underRoller, updateMindmapPermissionRows]);
 
   const removeMindmapPermissionRow = useCallback((index) => {
     const nextRows = mindmapPermissionRows.filter((_, rowIndex) => rowIndex !== index);
@@ -797,6 +949,16 @@ const MindmapCanvas = () => {
     setTimeout(() => setSaveStatus(null), 2500);
   }, [nodes, edges, accessControl]);
 
+  useEffect(() => {
+    if (loadStatus === 'loading') return;
+    const dataToPersist = {
+      nodes: serializeNodes(nodes),
+      edges: serializeEdges(edges),
+      accessControl: normalizeAccessControl(accessControl),
+    };
+    localStorage.setItem('mindmap_data', JSON.stringify(dataToPersist));
+  }, [nodes, edges, accessControl, loadStatus]);
+
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
       <style>{`
@@ -937,7 +1099,7 @@ const MindmapCanvas = () => {
                     cursor: 'pointer',
                     fontSize: '16px',
                     color: '#fff',
-                    backgroundColor: showMindmapKeyPanel ? '#0f766e' : '#475569',
+                    backgroundColor: showMindmapKeyPanel ? '#0f172a' : '#475569',
                     boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
                   }}
                   title="Mindmap kontrol adgang"
@@ -1026,8 +1188,8 @@ const MindmapCanvas = () => {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <select
-                      value={row.rolle}
-                      onChange={(event) => updateMindmapPermissionRow(index, { rolle: event.target.value })}
+                      value={row.uiTabId || roleTabs[0]?.id || 'authority'}
+                      onChange={(event) => updateMindmapPermissionRow(index, { uiTabId: event.target.value })}
                       style={{
                         flex: 1,
                         fontSize: '13px',
@@ -1037,7 +1199,27 @@ const MindmapCanvas = () => {
                         backgroundColor: '#ffffff',
                       }}
                     >
-                      {availableRoles.map((rolle) => (
+                      {roleTabs.map((tab) => (
+                        <option key={`${row.id}-tab-${tab.id}`} value={tab.id}>
+                          {tab.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <select
+                      value={row.uiTopRole || row.rolle}
+                      onChange={(event) => updateMindmapPermissionRow(index, { uiTopRole: event.target.value })}
+                      style={{
+                        flex: 1,
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      {(topRolesByTab[row.uiTabId || roleTabs[0]?.id || 'authority'] || []).map((rolle) => (
                         <option key={`${row.id}-${rolle}`} value={rolle}>
                           {rolle}
                         </option>
@@ -1059,6 +1241,34 @@ const MindmapCanvas = () => {
                       ✕
                     </button>
                   </div>
+                  {!!underRoller[row.uiTopRole || row.rolle]?.length && (
+                    <select
+                      value={(underRoller[row.uiTopRole || row.rolle] || []).includes(row.rolle) ? row.rolle : ''}
+                      onChange={(event) => {
+                        const selected = event.target.value;
+                        if (!selected) {
+                          updateMindmapPermissionRow(index, { rolle: row.uiTopRole || row.rolle });
+                          return;
+                        }
+                        updateMindmapPermissionRow(index, { rolle: selected });
+                      }}
+                      style={{
+                        width: '100%',
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      <option value="">Ingen underrolle</option>
+                      {(underRoller[row.uiTopRole || row.rolle] || []).map((rolle) => (
+                        <option key={`${row.id}-sub-${rolle}`} value={rolle}>
+                          {rolle}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
                     <input
                       type="checkbox"
@@ -1147,6 +1357,10 @@ const MindmapCanvas = () => {
           canUseMindmapControl={canUseAdminTools}
           canConfigurePermissions={isAdmin && erAdmin}
           availableRoles={availableRoles}
+          roleTabs={roleTabs}
+          roleMetaMap={roleMetaMap}
+          topRolesByTab={topRolesByTab}
+          underRoller={underRoller}
           nodePermissionRule={
             selectedElement?.type === 'node'
               ? getNodeRule(selectedElement.data.id)

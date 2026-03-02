@@ -17,6 +17,26 @@ const DEFAULT_META = { kind: 'authority', parentRole: null, canManageUnderRole: 
 const RIGHT_LABELS = {
   'admin:bekraeft-slet-egne': 'Kan bekræfte slet, sine egne slet',
 };
+const TABS_META_ROLE = '__dfl_tabs__';
+const DEFAULT_TABS = [
+  { id: 'authority', label: 'Myndigheder' },
+  { id: 'year', label: 'Årgange' },
+  { id: 'dorm', label: 'Kollegie' },
+];
+
+function labelFromTabId(id = '') {
+  if (!id) return 'Ny fane';
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function normalizeTabId(input = '') {
+  const clean = String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9æøå]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return clean || 'ny-fane';
+}
 
 function normalizePermissions(data = {}) {
   const normalized = {};
@@ -49,8 +69,33 @@ export default function RettighederAdmin() {
   const [aabenNode, setAabenNode] = useState(null);
   const [accessTarget, setAccessTarget] = useState(null);
   const [validBoxIds, setValidBoxIds] = useState(null);
+  const [tabs, setTabs] = useState(DEFAULT_TABS);
 
   const rollerMap = useMemo(() => Object.fromEntries(roller.map((r) => [r, true])), [roller]);
+
+  const syncTabsFromPermissions = (nextPermissions = {}, preserveCurrent = true) => {
+    const tabMap = new Map(DEFAULT_TABS.map((t) => [t.id, t]));
+    const systemTabs = nextPermissions[TABS_META_ROLE]?.__meta?.tabs;
+    if (Array.isArray(systemTabs)) {
+      systemTabs.forEach((tab) => {
+        const id = normalizeTabId(tab?.id || tab?.label || '');
+        if (!id) return;
+        tabMap.set(id, { id, label: String(tab?.label || labelFromTabId(id)) });
+      });
+    }
+    Object.values(nextPermissions).forEach((cfg) => {
+      const meta = cfg?.__meta || {};
+      const candidate = meta.kind === 'box' ? meta.scopeKind : meta.kind;
+      const id = normalizeTabId(candidate || '');
+      if (!id || id === 'box' || id === 'role') return;
+      tabMap.set(id, { id, label: labelFromTabId(id) });
+    });
+    const nextTabs = [...tabMap.values()];
+    setTabs(nextTabs);
+    if (!preserveCurrent || !nextTabs.some((tab) => tab.id === aktivTab)) {
+      setAktivTab(nextTabs[0]?.id || 'authority');
+    }
+  };
 
   const kasser = useMemo(() => Object.entries(permissions)
     .filter(([, cfg]) => cfg?.__meta?.kind === 'box' && cfg.__meta.scopeKind === aktivTab)
@@ -139,7 +184,11 @@ export default function RettighederAdmin() {
 
   async function hentRettigheder() {
     const rettighederSvar = await fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } });
-    if (rettighederSvar.ok) setPermissions(normalizePermissions(await rettighederSvar.json()));
+    if (rettighederSvar.ok) {
+      const nextPermissions = normalizePermissions(await rettighederSvar.json());
+      setPermissions(nextPermissions);
+      syncTabsFromPermissions(nextPermissions);
+    }
   }
 
   useEffect(() => {
@@ -150,7 +199,11 @@ export default function RettighederAdmin() {
         fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } })
       ]);
       if (rollerSvar.ok) setRoller(await rollerSvar.json());
-      if (rettighederSvar.ok) setPermissions(normalizePermissions(await rettighederSvar.json()));
+      if (rettighederSvar.ok) {
+        const nextPermissions = normalizePermissions(await rettighederSvar.json());
+        setPermissions(nextPermissions);
+        syncTabsFromPermissions(nextPermissions, false);
+      }
     })();
   }, [erAdmin, token]);
 
@@ -199,6 +252,14 @@ export default function RettighederAdmin() {
       }
       cleaned[rolle] = { rights, __meta: meta };
     });
+    cleaned[TABS_META_ROLE] = {
+      rights: [],
+      __meta: {
+        ...DEFAULT_META,
+        kind: 'system',
+        tabs: tabs.map((tab) => ({ id: tab.id, label: tab.label })),
+      },
+    };
     return cleaned;
   }
 
@@ -318,7 +379,7 @@ export default function RettighederAdmin() {
 
   if (!bruger || !erAdmin) return <div className="min-h-screen flex items-center justify-center">Kun admin/owner har adgang.</div>;
 
-  const tabLabel = { authority: 'Myndigheder', year: 'Årgange', dorm: 'Kollegie' };
+  const tabLabel = Object.fromEntries(tabs.map((tab) => [tab.id, tab.label]));
 
   return (
     <>
@@ -328,7 +389,39 @@ export default function RettighederAdmin() {
         <h1 className="text-3xl font-bold">Rettigheder & Roller</h1>
 
         <div className="flex gap-2">
-          {Object.entries(tabLabel).map(([id, label]) => <button key={id} onClick={() => setAktivTab(id)} className={`px-3 py-2 rounded-lg border text-sm ${aktivTab === id ? 'bg-gray-900 text-white' : 'bg-white'}`}>{label}</button>)}
+          <button
+            type="button"
+            title="Tilføj ekstra fane (fx udvalg, teams eller projekter)"
+            onClick={() => {
+              const label = window.prompt('Navn på ny fane');
+              if (!label?.trim()) return;
+              const id = normalizeTabId(label);
+              if (tabs.some((tab) => tab.id === id)) {
+                setAktivTab(id);
+                return;
+              }
+              const nextTabs = [...tabs, { id, label: label.trim() }];
+              setTabs(nextTabs);
+              setAktivTab(id);
+              setPermissions((prev) => ({
+                ...prev,
+                [TABS_META_ROLE]: {
+                  rights: [],
+                  __meta: {
+                    ...DEFAULT_META,
+                    kind: 'system',
+                    tabs: nextTabs.map((tab) => ({ id: tab.id, label: tab.label })),
+                  },
+                },
+              }));
+            }}
+            className="px-3 py-2 rounded-lg border text-sm bg-white hover:bg-gray-50"
+          >
+            +
+          </button>
+          {tabs.map((tab) => (
+            <button key={tab.id} onClick={() => setAktivTab(tab.id)} className={`px-3 py-2 rounded-lg border text-sm ${aktivTab === tab.id ? 'bg-gray-900 text-white' : 'bg-white'}`}>{tab.label}</button>
+          ))}
         </div>
 
         <div className="grid lg:grid-cols-2 gap-4">
@@ -336,7 +429,7 @@ export default function RettighederAdmin() {
             <div className="space-y-2">
               <h3 className="font-semibold">{tabLabel[aktivTab]}</h3>
               <div className="flex gap-2">
-                <input value={nyRolleNavn} onChange={(e) => setNyRolleNavn(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder={`Opret ${tabLabel[aktivTab].toLowerCase()}`} />
+                <input value={nyRolleNavn} onChange={(e) => setNyRolleNavn(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder={`Opret ${(tabLabel[aktivTab] || aktivTab).toLowerCase()}`} />
                 <button onClick={() => opretRolle(nyRolleNavn, { kind: aktivTab, parentRole: null })} className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm">Opret</button>
                 <button onClick={() => opretRolle(nyRolleNavn, { kind: 'box', parentRole: null, scopeKind: aktivTab })} className="px-3 py-2 bg-green-700 text-white rounded-lg text-sm">Opret overskrift</button>
               </div>
@@ -372,8 +465,19 @@ export default function RettighederAdmin() {
           <div className="bg-white rounded-2xl border p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">Magt for rollen: {valgtRolle || '—'}</h3>
-              <button onClick={() => gemRettigheder()} className="px-3 py-2 bg-blue-700 text-white rounded-lg text-sm">Gem rettigheder</button>
+              <button
+                onClick={() => gemRettigheder()}
+                disabled={!valgtRolle}
+                className="px-3 py-2 bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm"
+              >
+                Gem rettigheder
+              </button>
             </div>
+            {!valgtRolle && (
+              <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                Vælg en rolle i venstre panel for at redigere rettigheder og ansvar.
+              </div>
+            )}
             {aktivMeta.parentRole && (
               <div className="mb-3 border rounded-md px-3 py-2 bg-gray-50">
                 <label className="flex items-center gap-2 text-sm">

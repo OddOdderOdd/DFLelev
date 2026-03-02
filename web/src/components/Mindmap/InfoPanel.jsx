@@ -9,6 +9,23 @@ const EMPTY_NODE_RULE = {
   deleteNodeRoles: [],
   editAssociationRoles: [],
 };
+const DEFAULT_ROLE_META = { kind: 'authority', parentRole: null, canManageUnderRole: false, scopeKind: null };
+
+function normalizeTabId(input = '') {
+  const clean = String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9æøå]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return clean || 'authority';
+}
+
+function getTabForRole(rolle, metaMap, tabs) {
+  const meta = metaMap?.[rolle] || DEFAULT_ROLE_META;
+  const candidate = meta.kind === 'box' ? (meta.scopeKind || 'authority') : (meta.kind || 'authority');
+  const id = normalizeTabId(candidate);
+  return (tabs || []).some((tab) => tab.id === id) ? id : 'authority';
+}
 
 function normalizeNodeRule(rule = {}) {
   return {
@@ -66,6 +83,10 @@ const InfoPanel = ({
   canUseMindmapControl = false,
   canConfigurePermissions = false,
   availableRoles = [],
+  roleTabs = [],
+  roleMetaMap = {},
+  topRolesByTab = {},
+  underRoller = {},
   nodePermissionRule = null,
   nodeCapabilities = null,
   onNodePermissionChange,
@@ -116,8 +137,17 @@ const InfoPanel = ({
 
   useEffect(() => {
     if (!isNode) return;
-    setNodePermissionRows(nodeRuleToRows(nodePermissionRule || EMPTY_NODE_RULE));
-  }, [isNode, isGroupNode, nodePermissionRule, element.data?.id]);
+    const rows = nodeRuleToRows(nodePermissionRule || EMPTY_NODE_RULE).map((row) => {
+      const tabId = getTabForRole(row.rolle, roleMetaMap, roleTabs);
+      const parentRole = roleMetaMap[row.rolle]?.parentRole || null;
+      return {
+        ...row,
+        uiTabId: tabId,
+        uiTopRole: parentRole || row.rolle,
+      };
+    });
+    setNodePermissionRows(rows);
+  }, [isNode, isGroupNode, nodePermissionRule, element.data?.id, roleMetaMap, roleTabs]);
 
   useEffect(() => {
     if (!isNode) setShowNodeKeyPanel(false);
@@ -267,13 +297,17 @@ const InfoPanel = ({
   const addNodePermissionRole = () => {
     if (!isNode) return;
     const used = new Set(nodePermissionRows.map((row) => row.rolle));
-    const nextRole = availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
+    const defaultTabId = roleTabs[0]?.id || 'authority';
+    const topRoles = topRolesByTab[defaultTabId] || [];
+    const nextRole = topRoles.find((rolle) => !used.has(rolle)) || availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
     if (!nextRole) return;
     updateNodePermissionRows([
       ...nodePermissionRows,
       {
         id: `row-${nextRole}-${Date.now()}`,
         rolle: nextRole,
+        uiTabId: getTabForRole(nextRole, roleMetaMap, roleTabs),
+        uiTopRole: roleMetaMap[nextRole]?.parentRole || nextRole,
         canEditContent: true,
         canEditColor: false,
         canDelete: false,
@@ -284,9 +318,27 @@ const InfoPanel = ({
 
   const updateNodePermissionRow = (index, patch) => {
     if (!isNode) return;
-    const nextRows = nodePermissionRows.map((row, rowIndex) =>
-      rowIndex === index ? { ...row, ...patch } : row
-    );
+    const nextRows = nodePermissionRows.map((row, rowIndex) => {
+      if (rowIndex !== index) return row;
+      const next = { ...row, ...patch };
+      if (Object.prototype.hasOwnProperty.call(patch, 'uiTabId')) {
+        const tabTopRoles = topRolesByTab[patch.uiTabId] || [];
+        const nextTop = tabTopRoles[0] || next.uiTopRole || next.rolle;
+        const children = underRoller[nextTop] || [];
+        return {
+          ...next,
+          uiTabId: patch.uiTabId,
+          uiTopRole: nextTop,
+          rolle: children.includes(next.rolle) || next.rolle === nextTop ? next.rolle : nextTop,
+        };
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'uiTopRole')) {
+        const children = underRoller[patch.uiTopRole] || [];
+        const resolvedRole = children.includes(next.rolle) ? next.rolle : patch.uiTopRole;
+        return { ...next, uiTopRole: patch.uiTopRole, rolle: resolvedRole };
+      }
+      return next;
+    });
     updateNodePermissionRows(nextRows);
   };
 
@@ -364,7 +416,7 @@ const InfoPanel = ({
                 height: '32px',
                 borderRadius: '6px',
                 border: 'none',
-                backgroundColor: showNodeKeyPanel ? '#0f766e' : '#f1f5f9',
+                backgroundColor: showNodeKeyPanel ? '#0f172a' : '#f1f5f9',
                 color: showNodeKeyPanel ? '#ffffff' : '#475569',
                 cursor: 'pointer',
                 display: 'flex',
@@ -1055,8 +1107,8 @@ const InfoPanel = ({
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <select
-                      value={row.rolle}
-                      onChange={(event) => updateNodePermissionRow(index, { rolle: event.target.value })}
+                      value={row.uiTabId || roleTabs[0]?.id || 'authority'}
+                      onChange={(event) => updateNodePermissionRow(index, { uiTabId: event.target.value })}
                       style={{
                         flex: 1,
                         fontSize: '13px',
@@ -1066,7 +1118,27 @@ const InfoPanel = ({
                         backgroundColor: '#ffffff',
                       }}
                     >
-                      {availableRoles.map((rolle) => (
+                      {roleTabs.map((tab) => (
+                        <option key={`${row.id}-tab-${tab.id}`} value={tab.id}>
+                          {tab.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <select
+                      value={row.uiTopRole || row.rolle}
+                      onChange={(event) => updateNodePermissionRow(index, { uiTopRole: event.target.value })}
+                      style={{
+                        flex: 1,
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      {(topRolesByTab[row.uiTabId || roleTabs[0]?.id || 'authority'] || []).map((rolle) => (
                         <option key={`${row.id}-${rolle}`} value={rolle}>
                           {rolle}
                         </option>
@@ -1088,6 +1160,34 @@ const InfoPanel = ({
                       ✕
                     </button>
                   </div>
+                  {!!underRoller[row.uiTopRole || row.rolle]?.length && (
+                    <select
+                      value={(underRoller[row.uiTopRole || row.rolle] || []).includes(row.rolle) ? row.rolle : ''}
+                      onChange={(event) => {
+                        const selected = event.target.value;
+                        if (!selected) {
+                          updateNodePermissionRow(index, { rolle: row.uiTopRole || row.rolle });
+                          return;
+                        }
+                        updateNodePermissionRow(index, { rolle: selected });
+                      }}
+                      style={{
+                        width: '100%',
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      <option value="">Ingen underrolle</option>
+                      {(underRoller[row.uiTopRole || row.rolle] || []).map((rolle) => (
+                        <option key={`${row.id}-sub-${rolle}`} value={rolle}>
+                          {rolle}
+                        </option>
+                      ))}
+                    </select>
+                  )}
 
                   <div style={{ display: 'grid', gap: '6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
