@@ -115,12 +115,12 @@ const InfoPanel = ({
   }, [element, isNode, isEdge]);
 
   useEffect(() => {
-    if (!isNode || isGroupNode) return;
+    if (!isNode) return;
     setNodePermissionRows(nodeRuleToRows(nodePermissionRule || EMPTY_NODE_RULE));
   }, [isNode, isGroupNode, nodePermissionRule, element.data?.id]);
 
   useEffect(() => {
-    if (!isNode || isGroupNode) setShowNodeKeyPanel(false);
+    if (!isNode) setShowNodeKeyPanel(false);
   }, [isNode, isGroupNode, element.data?.id]);
 
   // Handle node label change
@@ -265,7 +265,7 @@ const InfoPanel = ({
   };
 
   const addNodePermissionRole = () => {
-    if (!isNode || isGroupNode) return;
+    if (!isNode) return;
     const used = new Set(nodePermissionRows.map((row) => row.rolle));
     const nextRole = availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
     if (!nextRole) return;
@@ -283,7 +283,7 @@ const InfoPanel = ({
   };
 
   const updateNodePermissionRow = (index, patch) => {
-    if (!isNode || isGroupNode) return;
+    if (!isNode) return;
     const nextRows = nodePermissionRows.map((row, rowIndex) =>
       rowIndex === index ? { ...row, ...patch } : row
     );
@@ -291,7 +291,7 @@ const InfoPanel = ({
   };
 
   const removeNodePermissionRow = (index) => {
-    if (!isNode || isGroupNode) return;
+    if (!isNode) return;
     const nextRows = nodePermissionRows.filter((_, rowIndex) => rowIndex !== index);
     updateNodePermissionRows(nextRows);
   };
@@ -321,7 +321,7 @@ const InfoPanel = ({
           alignItems: 'center',
         }}
       >
-        {isNode && isEditingText && (isGroupNode ? canUseMindmapControl : canEditContent) ? (
+        {isNode && isEditingText && canEditContent ? (
           <input
             type="text"
             value={label}
@@ -356,7 +356,7 @@ const InfoPanel = ({
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {isNode && !isGroupNode && isAdmin && canConfigurePermissions && (
+          {isNode && isAdmin && canConfigurePermissions && (
             <button
               onClick={() => setShowNodeKeyPanel((prev) => !prev)}
               style={{
@@ -423,7 +423,7 @@ const InfoPanel = ({
         {isNode && (
           <>
             {/* Color Pickers - Admin Mode Only */}
-            {(isGroupNode ? canUseMindmapControl : canEditColor) && (
+            {canEditColor && (
               <div style={{ marginBottom: '24px' }}>
                 <div
                   style={{
@@ -559,7 +559,7 @@ const InfoPanel = ({
               </div>
             )}
 
-            {isEditingText && (isGroupNode ? canUseMindmapControl : canEditContent) ? (
+            {isEditingText && canEditContent ? (
               <>
                 <label
                   style={{
@@ -685,17 +685,41 @@ const InfoPanel = ({
                     </Link>
                   </>
                 ) : (
-                  <p
-                    style={{
-                      fontSize: '15px',
-                      lineHeight: '1.6',
-                      color: '#94a3b8',
-                      margin: 0,
-                      fontStyle: 'italic',
-                    }}
-                  >
-                    Ingen beskrivelse tilgængelig.
-                  </p>
+                  <>
+                    <p
+                      style={{
+                        fontSize: '15px',
+                        lineHeight: '1.6',
+                        color: '#94a3b8',
+                        margin: '0 0 16px 0',
+                        fontStyle: 'italic',
+                      }}
+                    >
+                      Ingen beskrivelse tilgængelig.
+                    </p>
+                    <Link
+                      to={linkUrl || '/ressourcer'}
+                      style={{
+                        display: 'inline-block',
+                        padding: '10px 20px',
+                        backgroundColor: '#3b82f6',
+                        color: '#ffffff',
+                        borderRadius: '6px',
+                        textDecoration: 'none',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        transition: 'background-color 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#2563eb';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#3b82f6';
+                      }}
+                    >
+                      Læs mere
+                    </Link>
+                  </>
                 )}
               </>
             )}
@@ -917,7 +941,7 @@ const InfoPanel = ({
       </div>
 
       {/* Delete Button - Bottom (Admin only) */}
-      {((isNode && (isGroupNode ? canUseMindmapControl : canDeleteNode)) || (isEdge && canUseMindmapControl)) && (
+      {((isNode && canDeleteNode) || (isEdge && canUseMindmapControl)) && (
         <div
           style={{
             padding: '20px 24px',
@@ -954,7 +978,7 @@ const InfoPanel = ({
         </div>
       )}
 
-      {isNode && !isGroupNode && isAdmin && canConfigurePermissions && showNodeKeyPanel && (
+      {isNode && isAdmin && canConfigurePermissions && showNodeKeyPanel && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1200, display: 'flex' }}>
           <div
             style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)' }}

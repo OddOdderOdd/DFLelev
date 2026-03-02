@@ -33,11 +33,29 @@ async function syncBoxPermissionEntry(box) {
   });
 }
 
+async function getUserRoles(userId) {
+  const authorities = await prisma.userAuthority.findMany({
+    where: { userId },
+    select: { rolle: true },
+  });
+  return authorities.map((a) => a.rolle);
+}
+
+function canViewBoxByRules(rules = [], roles = []) {
+  if (!rules.length) return true;
+  const roleRules = rules.filter((rule) => roles.includes(rule.rolle));
+  const hasHiddenConstraint = rules.some((rule) => !!rule.hideObject);
+  const allowView = roleRules.some((rule) => !!rule.canView);
+  if (hasHiddenConstraint) return allowView;
+  if (!roleRules.length) return true;
+  return allowView;
+}
+
 /**
  * GET /api/boxes?category=arkiv
  * List alle boxes i en kategori
  */
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const { category, q } = req.query;
 
@@ -63,7 +81,26 @@ router.get('/', async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const boxIds = boxes.map((box) => box.id);
+    let visibleBoxes = boxes;
+    const roles = await getUserRoles(req.user.id);
+    const isSuperUser = roles.includes('Admin') || roles.includes('Owner');
+    if (!isSuperUser) {
+      const rootRules = await prisma.folderAccessRule.findMany({
+        where: {
+          boxId: { in: boxes.map((box) => box.id) },
+          folderPath: '',
+        },
+      });
+      const rulesByBox = new Map();
+      rootRules.forEach((rule) => {
+        const current = rulesByBox.get(rule.boxId) || [];
+        current.push(rule);
+        rulesByBox.set(rule.boxId, current);
+      });
+      visibleBoxes = boxes.filter((box) => canViewBoxByRules(rulesByBox.get(box.id) || [], roles));
+    }
+
+    const boxIds = visibleBoxes.map((box) => box.id);
     const [folderCounts, fileStats] = await Promise.all([
       prisma.folder.groupBy({ by: ['boxId'], where: { boxId: { in: boxIds } }, _count: { _all: true } }),
       prisma.file.groupBy({ by: ['boxId'], where: { boxId: { in: boxIds } }, _count: { _all: true }, _sum: { stoerrelse: true } })
@@ -73,7 +110,7 @@ router.get('/', async (req, res) => {
     const fileCountMap = new Map(fileStats.map((item) => [item.boxId, item._count?._all ?? 0]));
     const bytesMap = new Map(fileStats.map((item) => [item.boxId, Number(item._sum?.stoerrelse ?? 0)]));
 
-    const enrichedBoxes = boxes.map((box) => ({
+    const enrichedBoxes = visibleBoxes.map((box) => ({
       ...box,
       stats: {
         folderCount: folderCountMap.get(box.id) ?? 0,
@@ -158,7 +195,7 @@ router.get('/summary', requireAuth, async (req, res) => {
  * GET /api/boxes/:id
  * Hent én box
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const box = await prisma.box.findUnique({
       where: { id: req.params.id },
@@ -173,6 +210,17 @@ router.get('/:id', async (req, res) => {
 
     if (!box) {
       return res.status(404).json({ fejl: 'Box ikke fundet' });
+    }
+
+    const roles = await getUserRoles(req.user.id);
+    const isSuperUser = roles.includes('Admin') || roles.includes('Owner');
+    if (!isSuperUser) {
+      const rootRules = await prisma.folderAccessRule.findMany({
+        where: { boxId: box.id, folderPath: '' },
+      });
+      if (!canViewBoxByRules(rootRules, roles)) {
+        return res.status(403).json({ fejl: 'Du har ikke adgang til denne kasse' });
+      }
     }
 
     res.json(box);

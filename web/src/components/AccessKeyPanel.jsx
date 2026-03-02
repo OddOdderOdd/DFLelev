@@ -120,7 +120,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objec
   const description = folderPath
     ? `Adgang for undermappe: ${folderPath}`
     : 'Adgang for hele kassen';
-  const isHideObjectAvailable = objectType === 'folder' || objectType === 'file';
+  const isHideObjectAvailable = objectType === 'folder' || objectType === 'file' || objectType === 'box';
 
   return (
     <div className="fixed inset-0 z-[120] flex">

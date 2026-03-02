@@ -86,6 +86,20 @@ function normalizeAccessControl(input = {}) {
   };
 }
 
+function mindmapRolesToRows(roles = []) {
+  return normalizeRoles(roles).map((rolle) => ({
+    id: `mindmap-${rolle}`,
+    rolle,
+    canControlMindmap: true,
+  }));
+}
+
+function mindmapRowsToRoles(rows = []) {
+  return normalizeRoles(
+    rows.filter((row) => row.rolle && row.canControlMindmap).map((row) => row.rolle)
+  );
+}
+
 // Helper Functions
 function getNodeBounds(node, nodes) {
   let x = node.position.x;
@@ -331,6 +345,7 @@ const MindmapCanvas = () => {
   const [selectedElement, setSelectedElement] = useState(null);
   const [accessControl, setAccessControl] = useState(DEFAULT_ACCESS_CONTROL);
   const [availableRoles, setAvailableRoles] = useState([]);
+  const [mindmapPermissionRows, setMindmapPermissionRows] = useState([]);
   const [showMindmapKeyPanel, setShowMindmapKeyPanel] = useState(false);
   const [loadStatus, setLoadStatus] = useState('idle');
   const [saveStatus, setSaveStatus] = useState(null);
@@ -357,6 +372,10 @@ const MindmapCanvas = () => {
   );
 
   const canUseAdminTools = isAdmin && hasMindmapControl;
+
+  useEffect(() => {
+    setMindmapPermissionRows(mindmapRolesToRows(accessControl.mindmapControlRoles));
+  }, [accessControl.mindmapControlRoles]);
 
   // Load data on mount
   useEffect(() => {
@@ -531,7 +550,7 @@ const MindmapCanvas = () => {
   );
 
   const selectedNodeCapabilities = useMemo(() => {
-    if (selectedElement?.type !== 'node' || selectedElement?.data?.type === 'groupNode') {
+    if (selectedElement?.type !== 'node') {
       return null;
     }
     return getNodeCapabilities(selectedElement.data.id);
@@ -552,6 +571,37 @@ const MindmapCanvas = () => {
       mindmapControlRoles: normalizeRoles(roles),
     }));
   }, []);
+
+  const updateMindmapPermissionRows = useCallback((nextRows) => {
+    setMindmapPermissionRows(nextRows);
+    handleMindmapControlRolesChange(mindmapRowsToRoles(nextRows));
+  }, [handleMindmapControlRolesChange]);
+
+  const addMindmapPermissionRole = useCallback(() => {
+    const used = new Set(mindmapPermissionRows.map((row) => row.rolle));
+    const nextRole = availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
+    if (!nextRole) return;
+    updateMindmapPermissionRows([
+      ...mindmapPermissionRows,
+      {
+        id: `mindmap-${nextRole}-${Date.now()}`,
+        rolle: nextRole,
+        canControlMindmap: true,
+      },
+    ]);
+  }, [mindmapPermissionRows, availableRoles, updateMindmapPermissionRows]);
+
+  const updateMindmapPermissionRow = useCallback((index, patch) => {
+    const nextRows = mindmapPermissionRows.map((row, rowIndex) =>
+      rowIndex === index ? { ...row, ...patch } : row
+    );
+    updateMindmapPermissionRows(nextRows);
+  }, [mindmapPermissionRows, updateMindmapPermissionRows]);
+
+  const removeMindmapPermissionRow = useCallback((index) => {
+    const nextRows = mindmapPermissionRows.filter((_, rowIndex) => rowIndex !== index);
+    updateMindmapPermissionRows(nextRows);
+  }, [mindmapPermissionRows, updateMindmapPermissionRows]);
 
   const handleNodePermissionChange = useCallback((nodeId, nextRule) => {
     setAccessControl((prev) => ({
@@ -651,12 +701,8 @@ const MindmapCanvas = () => {
   const handleDelete = useCallback(() => {
     if (!selectedElement) return;
     if (selectedElement.type === 'node') {
-      if (selectedElement.data?.type === 'groupNode') {
-        if (!canUseAdminTools) return;
-      } else {
-        const caps = getNodeCapabilities(selectedElement.data.id);
-        if (!caps.canDeleteNode && !canUseAdminTools) return;
-      }
+      const caps = getNodeCapabilities(selectedElement.data.id);
+      if (!caps.canDeleteNode && !canUseAdminTools) return;
       setNodes((nds) => nds.filter((n) => n.id !== selectedElement.data.id));
       setEdges((eds) =>
         eds.filter(
@@ -675,7 +721,7 @@ const MindmapCanvas = () => {
   const handleNodeUpdate = useCallback(
     (updatedData) => {
       if (!selectedElement || selectedElement.type !== 'node') return;
-      if (selectedElement.data?.type !== 'groupNode' && !canUseAdminTools) {
+      if (!canUseAdminTools) {
         const caps = getNodeCapabilities(selectedElement.data.id);
         const isColorChange = ['borderColor', 'backgroundColor', 'textColor'].some(
           (key) => Object.prototype.hasOwnProperty.call(updatedData, key)
@@ -958,39 +1004,89 @@ const MindmapCanvas = () => {
 
             <div style={{ padding: '16px 20px', overflowY: 'auto', display: 'grid', gap: '10px' }}>
               <div style={{ fontSize: '13px', color: '#475569' }}>
-                Roller her får adgang til alle admin-værktøjer på mindmappet.
+                Vælg roller og tilladelser for mindmap-kontrol.
               </div>
-              {availableRoles.map((rolle) => {
-                const checked = accessControl.mindmapControlRoles.includes(rolle);
-                return (
-                  <label
-                    key={rolle}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '10px',
-                      fontSize: '13px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '10px',
-                      padding: '8px 10px',
-                      backgroundColor: checked ? '#f0fdfa' : '#ffffff',
-                    }}
-                  >
-                    <span>{rolle}</span>
+              {mindmapPermissionRows.length === 0 && (
+                <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                  Ingen roller endnu. Tryk på &quot;+ Tilføj rolle&quot;.
+                </div>
+              )}
+
+              {mindmapPermissionRows.map((row, index) => (
+                <div
+                  key={row.id || `${row.rolle}-${index}`}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    padding: '8px 10px',
+                    backgroundColor: '#f8fafc',
+                    display: 'grid',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <select
+                      value={row.rolle}
+                      onChange={(event) => updateMindmapPermissionRow(index, { rolle: event.target.value })}
+                      style={{
+                        flex: 1,
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      {availableRoles.map((rolle) => (
+                        <option key={`${row.id}-${rolle}`} value={rolle}>
+                          {rolle}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => removeMindmapPermissionRow(index)}
+                      style={{
+                        border: 'none',
+                        backgroundColor: 'transparent',
+                        color: '#94a3b8',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        lineHeight: 1,
+                      }}
+                      title="Fjern rolle"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
                     <input
                       type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        const current = new Set(accessControl.mindmapControlRoles);
-                        if (checked) current.delete(rolle);
-                        else current.add(rolle);
-                        handleMindmapControlRolesChange([...current]);
-                      }}
+                      checked={!!row.canControlMindmap}
+                      onChange={(event) => updateMindmapPermissionRow(index, { canControlMindmap: event.target.checked })}
                     />
+                    Mindmap kontrol
                   </label>
-                );
-              })}
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={addMindmapPermissionRole}
+                style={{
+                  justifySelf: 'start',
+                  border: '1px dashed #94a3b8',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  borderRadius: '999px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                + Tilføj rolle
+              </button>
             </div>
           </div>
         </div>
@@ -1052,7 +1148,7 @@ const MindmapCanvas = () => {
           canConfigurePermissions={isAdmin && erAdmin}
           availableRoles={availableRoles}
           nodePermissionRule={
-            selectedElement?.type === 'node' && selectedElement?.data?.type !== 'groupNode'
+            selectedElement?.type === 'node'
               ? getNodeRule(selectedElement.data.id)
               : null
           }
