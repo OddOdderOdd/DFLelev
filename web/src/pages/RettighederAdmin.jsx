@@ -1,33 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, ALLE_RETTIGHEDER } from '../context/AuthContext';
 import AccessKeyPanel from '../components/AccessKeyPanel';
 
-const RETTIGHEDS_TRAE = [
-  { id: 'home', label: 'Hjem', rights: ['side:home'], children: [] },
-  { id: 'kontrolpanel', label: 'Kontrolpanel', rights: [], children: [] },
-  { id: 'mindmap', label: 'Mindmap', rights: ['side:mindmap', 'mindmap:save', 'mindmap:add-node', 'mindmap:add-group', 'mindmap:edit-text'], children: [] },
-  { id: 'skolekort', label: 'Skolekort', rights: ['side:skolekort'], children: [] },
-  { id: 'ressourcer', label: 'Ressourcer', rights: ['side:ressourcer', 'ressourcer:edit'], children: [{ id: 'ressourcer:mapper', label: 'Mapper & undermapper', rights: ['ressourcer:folder:edit', 'ressourcer:folder:create', 'ressourcer:folder:delete'] }] },
-  { id: 'arkiv', label: 'Arkiv', rights: ['side:arkiv', 'arkiv:edit'], children: [{ id: 'arkiv:mapper', label: 'Mapper & undermapper', rights: ['arkiv:folder:edit', 'arkiv:folder:create', 'arkiv:folder:delete'] }] },
-  { id: 'generale-rettigheder', label: 'Generale rettigheder', rights: ['admin:bekraeft-slet-egne'], children: [] }
-];
-
-const DEFAULT_META = { kind: 'authority', parentRole: null, canManageUnderRole: false, scopeKind: null };
-const RIGHT_LABELS = {
-  'admin:bekraeft-slet-egne': 'Kan bekræfte slet, sine egne slet',
-};
-const TABS_META_ROLE = '__dfl_tabs__';
 const DEFAULT_TABS = [
-  { id: 'authority', label: 'Myndigheder' },
+  { id: 'admins', label: 'Admins' },
   { id: 'year', label: 'Årgange' },
   { id: 'dorm', label: 'Kollegie' },
 ];
 
-function labelFromTabId(id = '') {
-  if (!id) return 'Ny fane';
-  return id.charAt(0).toUpperCase() + id.slice(1);
-}
+const TABS_META_ROLE = '__dfl_tabs__';
+const GROUPS_META_ROLE = '__dfl_groups__';
+
+const DEFAULT_META = {
+  kind: 'role',
+  tabId: null,
+  groupId: null,
+};
 
 function normalizeTabId(input = '') {
   const clean = String(input || '')
@@ -38,524 +27,1077 @@ function normalizeTabId(input = '') {
   return clean || 'ny-fane';
 }
 
-function normalizePermissions(data = {}) {
-  const normalized = {};
-  Object.entries(data).forEach(([rolle, config]) => {
-    if (Array.isArray(config)) {
-      normalized[rolle] = { rights: config, __meta: { ...DEFAULT_META } };
+function normalizePermissions(raw = {}) {
+  const result = {};
+  Object.entries(raw || {}).forEach(([rolle, cfg]) => {
+    if (Array.isArray(cfg)) {
+      result[rolle] = { rights: cfg, __meta: { ...DEFAULT_META } };
       return;
     }
-    const baseMeta = { ...DEFAULT_META, ...(config?.__meta || {}) };
-    if (baseMeta.kind === 'box' && !baseMeta.scopeKind) {
-      baseMeta.scopeKind = 'authority';
-    }
-    normalized[rolle] = { rights: config?.rights || [], __meta: baseMeta };
+    const meta = { ...DEFAULT_META, ...(cfg?.__meta || {}) };
+    result[rolle] = { rights: cfg?.rights || [], __meta: meta };
   });
-  return normalized;
+  return result;
 }
 
-function IconButton({ icon, title, onClick, className = '' }) {
-  return <button title={title} onClick={onClick} className={`px-2 py-1 rounded border bg-white hover:bg-gray-50 ${className}`}>{icon}</button>;
+function readTabsFromPermissions(permissions) {
+  const system = permissions[TABS_META_ROLE];
+  if (!system?.__meta?.tabs || !Array.isArray(system.__meta.tabs)) {
+    return DEFAULT_TABS;
+  }
+  const seen = new Map();
+  DEFAULT_TABS.forEach((t) => seen.set(t.id, t));
+  system.__meta.tabs.forEach((t) => {
+    const id = normalizeTabId(t.id || t.label);
+    if (!id) return;
+    seen.set(id, { id, label: String(t.label || t.id || id) });
+  });
+  return Array.from(seen.values());
+}
+
+function writeTabsToPermissions(permissions, tabs) {
+  return {
+    ...permissions,
+    [TABS_META_ROLE]: {
+      rights: [],
+      __meta: {
+        kind: 'system',
+        tabs: tabs.map((t) => ({ id: t.id, label: t.label })),
+      },
+    },
+  };
+}
+
+function readGroupsFromPermissions(permissions) {
+  const entry = permissions[GROUPS_META_ROLE];
+  if (!entry?.__meta?.groups || !Array.isArray(entry.__meta.groups)) {
+    return [];
+  }
+  return entry.__meta.groups;
+}
+
+function writeGroupsToPermissions(permissions, groups) {
+  return {
+    ...permissions,
+    [GROUPS_META_ROLE]: {
+      rights: [],
+      __meta: {
+        kind: 'system',
+        groups,
+      },
+    },
+  };
 }
 
 export default function RettighederAdmin() {
   const navigate = useNavigate();
   const { bruger, erAdmin, token } = useAuth();
+
   const [permissions, setPermissions] = useState({});
-  const [roller, setRoller] = useState([]);
-  const [valgtRolle, setValgtRolle] = useState('');
-  const [nyRolleNavn, setNyRolleNavn] = useState('');
-  const [aktivTab, setAktivTab] = useState('authority');
-  const [aabenNode, setAabenNode] = useState(null);
-  const [accessTarget, setAccessTarget] = useState(null);
-  const [validBoxIds, setValidBoxIds] = useState(null);
   const [tabs, setTabs] = useState(DEFAULT_TABS);
+  const [groups, setGroups] = useState([]);
+  const [roller, setRoller] = useState([]);
 
-  const rollerMap = useMemo(() => Object.fromEntries(roller.map((r) => [r, true])), [roller]);
+  const [aktivTabId, setAktivTabId] = useState('admins');
+  const [nyNavn, setNyNavn] = useState('');
+  const [valgtRolleNavn, setValgtRolleNavn] = useState('');
+  const [viserFaneRettigheder, setViserFaneRettigheder] = useState(false);
+  const [accessTarget, setAccessTarget] = useState(null);
 
-  const syncTabsFromPermissions = (nextPermissions = {}, preserveCurrent = true) => {
-    const tabMap = new Map(DEFAULT_TABS.map((t) => [t.id, t]));
-    const systemTabs = nextPermissions[TABS_META_ROLE]?.__meta?.tabs;
-    if (Array.isArray(systemTabs)) {
-      systemTabs.forEach((tab) => {
-        const id = normalizeTabId(tab?.id || tab?.label || '');
-        if (!id) return;
-        tabMap.set(id, { id, label: String(tab?.label || labelFromTabId(id)) });
-      });
-    }
-    Object.values(nextPermissions).forEach((cfg) => {
-      const meta = cfg?.__meta || {};
-      const candidate = meta.kind === 'box' ? meta.scopeKind : meta.kind;
-      const id = normalizeTabId(candidate || '');
-      if (!id || id === 'box' || id === 'role') return;
-      tabMap.set(id, { id, label: labelFromTabId(id) });
-    });
-    const nextTabs = [...tabMap.values()];
-    setTabs(nextTabs);
-    if (!preserveCurrent || !nextTabs.some((tab) => tab.id === aktivTab)) {
-      setAktivTab(nextTabs[0]?.id || 'authority');
-    }
-  };
+  const rollerMap = useMemo(
+    () => Object.fromEntries((roller || []).map((r) => [r, true])),
+    [roller]
+  );
 
-  const kasser = useMemo(() => Object.entries(permissions)
-    .filter(([, cfg]) => cfg?.__meta?.kind === 'box' && cfg.__meta.scopeKind === aktivTab)
-    .map(([rolle]) => rolle)
-    .filter((r) => rollerMap[r])
-    .sort((a, b) => a.localeCompare(b, 'da')), [aktivTab, permissions, rollerMap]);
+  const aktiveFaner = useMemo(() => {
+    if (!tabs.length) return DEFAULT_TABS;
+    return tabs;
+  }, [tabs]);
 
-  const rollerTilTab = useMemo(() => {
-    const kind = aktivTab;
-    return Object.entries(permissions)
-      .filter(([, cfg]) => cfg?.__meta?.kind === kind)
-      .map(([rolle]) => rolle)
-      .filter((r) => rollerMap[r])
+  const aktiveRollerKonfig = useMemo(() => normalizePermissions(permissions), [permissions]);
+
+  const rollerIaktivFane = useMemo(() => {
+    return Object.entries(aktiveRollerKonfig)
+      .filter(([navn, cfg]) => {
+        if (navn === TABS_META_ROLE || navn === GROUPS_META_ROLE) return false;
+        if (!rollerMap[navn]) return false;
+        return cfg.__meta.tabId === aktivTabId && !cfg.__meta.groupId;
+      })
+      .map(([navn]) => navn)
       .sort((a, b) => a.localeCompare(b, 'da'));
-  }, [aktivTab, permissions, rollerMap]);
+  }, [aktiveRollerKonfig, rollerMap, aktivTabId]);
 
-  const underRoller = useMemo(() => {
-    const result = {};
-    Object.entries(permissions).forEach(([rolle, cfg]) => {
-      const parent = cfg?.__meta?.parentRole;
-      if (!parent || !rollerMap[rolle]) return;
-      if (!result[parent]) result[parent] = [];
-      result[parent].push(rolle);
+  const grupperIaktivFane = useMemo(
+    () => groups.filter((g) => g.tabId === aktivTabId),
+    [groups, aktivTabId]
+  );
+
+  const grupperoller = useMemo(() => {
+    const map = {};
+    Object.entries(aktiveRollerKonfig).forEach(([navn, cfg]) => {
+      const groupId = cfg.__meta.groupId;
+      if (!groupId) return;
+      if (!rollerMap[navn]) return;
+      if (!map[groupId]) map[groupId] = [];
+      map[groupId].push(navn);
     });
-    Object.keys(result).forEach((k) => result[k].sort((a, b) => a.localeCompare(b, 'da')));
-    return result;
-  }, [permissions, rollerMap]);
+    Object.values(map).forEach((list) =>
+      list.sort((a, b) => a.localeCompare(b, 'da'))
+    );
+    return map;
+  }, [aktiveRollerKonfig, rollerMap]);
 
-  const rawAktivConfig = permissions[valgtRolle] || { rights: [], __meta: { ...DEFAULT_META } };
-  const aktivMeta = { ...DEFAULT_META, ...(rawAktivConfig.__meta || {}) };
-  let aktivRights = rawAktivConfig.rights || [];
-  if (aktivMeta.parentRole) {
-    const parentCfg = permissions[aktivMeta.parentRole];
-    if (parentCfg?.rights) {
-      const allowed = new Set(parentCfg.rights || []);
-      aktivRights = aktivRights.filter((r) => allowed.has(r));
-    } else {
-      aktivRights = [];
+  const aktivRolleConfig = valgtRolleNavn
+    ? aktiveRollerKonfig[valgtRolleNavn] || { rights: [], __meta: { ...DEFAULT_META } }
+    : null;
+
+  const faneRettigheder = useMemo(() => {
+    const system = aktiveRollerKonfig[TABS_META_ROLE];
+    if (!system?.__meta?.tabRights) return {};
+    return system.__meta.tabRights || {};
+  }, [aktiveRollerKonfig]);
+
+  const aktiveFaneRettigheder = useMemo(() => {
+    const ids = new Set(faneRettigheder[aktivTabId] || []);
+    return ALLE_RETTIGHEDER.filter((r) => ids.has(r.id));
+  }, [faneRettigheder, aktivTabId]);
+
+  const alleFaneRettigheder = useMemo(
+    () => ALLE_RETTIGHEDER,
+    []
+  );
+
+  const [mindmapKeyObjects, setMindmapKeyObjects] = useState([]);
+  const [mindmapNodeRules, setMindmapNodeRules] = useState({});
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('mindmap_data');
+      if (!stored) {
+        setMindmapKeyObjects([]);
+        setMindmapNodeRules({});
+        return;
+      }
+      const parsed = JSON.parse(stored);
+      const nodes = Array.isArray(parsed?.nodes) ? parsed.nodes : [];
+      const nodeRules = parsed?.accessControl?.nodeRules || {};
+
+      const groupNodes = nodes.filter((n) => n?.type === 'groupNode');
+      const groupLabelMap = groupNodes.reduce((acc, n) => {
+        if (n?.id && n.data?.label) {
+          acc[n.id] = n.data.label;
+        }
+        return acc;
+      }, {});
+
+      const keyNodes = nodes.filter(
+        (n) => n?.data && n.data.label && n.type !== 'groupNode'
+      );
+
+      const mapped = keyNodes.map((n) => {
+        const parentId = n.parentNode || '';
+        const groupLabel = parentId ? groupLabelMap[parentId] || 'Uden gruppe' : 'Uden gruppe';
+        return {
+          boxId: 'mindmap',
+          folderPath: n.id || '',
+          objectType: 'mindmap-node',
+          objectLabel: n.data.label,
+          category: 'mindmap',
+          groupLabel,
+        };
+      });
+
+      setMindmapKeyObjects(mapped);
+      setMindmapNodeRules(nodeRules);
+    } catch {
+      setMindmapKeyObjects([]);
+      setMindmapNodeRules({});
     }
-  }
-  const aktivConfig = { ...rawAktivConfig, rights: aktivRights, __meta: aktivMeta };
-
-  const parentOverskrift = aktivMeta.parentRole;
-  const parentOverskriftConfig = parentOverskrift ? permissions[parentOverskrift] : null;
-  const allowedRightsForChild = parentOverskriftConfig?.rights ? new Set(parentOverskriftConfig.rights || []) : null;
+  }, []);
 
   const noegleObjekter = useMemo(() => {
-    return Object.entries(permissions)
-      .filter(([, cfg]) => cfg?.__meta?.kind === 'box' && !!cfg?.__meta?.boxId)
-      .map(([rolle, cfg]) => {
+    const boxObjects = Object.entries(aktiveRollerKonfig)
+      .filter(([, cfg]) => cfg?.__meta?.kind === 'box' && !!cfg.__meta.boxId)
+      .map(([, cfg]) => {
         const meta = cfg.__meta || {};
         return {
-          rolle,
           boxId: meta.boxId,
           folderPath: meta.folderPath || '',
           objectType: meta.objectType || (meta.folderPath ? 'folder' : 'box'),
-          objectLabel: meta.objectLabel || (meta.folderPath ? meta.folderPath.split('/').pop() : rolle),
+          objectLabel:
+            meta.objectLabel ||
+            (meta.folderPath ? meta.folderPath.split('/').pop() : meta.boxId),
           category: meta.scopeKind || null,
         };
-      })
-      .filter((obj) => !validBoxIds || validBoxIds.has(obj.boxId))
-      .sort((a, b) => {
-        const labelSort = a.objectLabel.localeCompare(b.objectLabel, 'da');
-        if (labelSort !== 0) return labelSort;
-        return a.folderPath.localeCompare(b.folderPath, 'da');
       });
-  }, [permissions, validBoxIds]);
+
+    const combined = [...boxObjects, ...mindmapKeyObjects];
+
+    return combined.sort((a, b) => {
+      const labelSort = a.objectLabel.localeCompare(b.objectLabel, 'da');
+      if (labelSort !== 0) return labelSort;
+      return (a.folderPath || '').localeCompare(b.folderPath || '', 'da');
+    });
+  }, [aktiveRollerKonfig, mindmapKeyObjects]);
 
   const objektSektionMap = useMemo(() => {
-    const map = {
-      arkiv: 'arkiv',
-      ressourcer: 'ressourcer',
-      mindmap: 'mindmap',
-      kontrolpanel: 'kontrolpanel',
-      home: 'home',
-      skolekort: 'skolekort',
+    const labelMap = {
+      arkiv: 'Arkiv',
+      ressourcer: 'Ressourcer',
+      mindmap: 'Mindmap',
+      kontrolpanel: 'Kontrolpanel',
+      home: 'Hjem',
+      skolekort: 'Skolekort',
     };
     return noegleObjekter.reduce((acc, obj) => {
-      const sectionId = map[obj.category] || null;
-      if (!sectionId) return acc;
-      if (!acc[sectionId]) acc[sectionId] = [];
-      acc[sectionId].push(obj);
+      const key = obj.category || 'andet';
+      const label = labelMap[key] || 'Andre nøgleobjekter';
+      if (!acc[key]) {
+        acc[key] = { label, items: [] };
+      }
+      acc[key].items.push(obj);
       return acc;
     }, {});
   }, [noegleObjekter]);
-
-  async function hentRettigheder() {
-    const rettighederSvar = await fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } });
-    if (rettighederSvar.ok) {
-      const nextPermissions = normalizePermissions(await rettighederSvar.json());
-      setPermissions(nextPermissions);
-      syncTabsFromPermissions(nextPermissions);
-    }
-  }
 
   useEffect(() => {
     if (!erAdmin) return;
     (async () => {
       const [rollerSvar, rettighederSvar] = await Promise.all([
         fetch('/api/auth/roller'),
-        fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } })
+        fetch('/api/admin/rettigheder', { headers: { 'x-auth-token': token } }),
       ]);
-      if (rollerSvar.ok) setRoller(await rollerSvar.json());
+
+      if (rollerSvar.ok) {
+        setRoller(await rollerSvar.json());
+      }
       if (rettighederSvar.ok) {
-        const nextPermissions = normalizePermissions(await rettighederSvar.json());
-        setPermissions(nextPermissions);
-        syncTabsFromPermissions(nextPermissions, false);
+        const raw = await rettighederSvar.json();
+        const normalized = normalizePermissions(raw);
+        setPermissions(normalized);
+        setTabs(readTabsFromPermissions(normalized));
+        setGroups(readGroupsFromPermissions(normalized));
       }
     })();
   }, [erAdmin, token]);
 
-  useEffect(() => {
-    if (!erAdmin) return;
-    (async () => {
-      try {
-        const [arkivSvar, ressourcerSvar] = await Promise.all([
-          fetch('/api/boxes?category=arkiv', { headers: { 'x-auth-token': token } }),
-          fetch('/api/boxes?category=ressourcer', { headers: { 'x-auth-token': token } }),
-        ]);
-        const ids = new Set();
-        if (arkivSvar.ok) {
-          const arkiv = await arkivSvar.json();
-          (Array.isArray(arkiv) ? arkiv : []).forEach((box) => {
-            if (box?.id) ids.add(box.id);
-          });
-        }
-        if (ressourcerSvar.ok) {
-          const ressourcer = await ressourcerSvar.json();
-          (Array.isArray(ressourcer) ? ressourcer : []).forEach((box) => {
-            if (box?.id) ids.add(box.id);
-          });
-        }
-        setValidBoxIds(ids);
-      } catch (error) {
-        console.error('Kunne ikke validere nøgle-objekter:', error);
-        setValidBoxIds(null);
-      }
-    })();
-  }, [erAdmin, token]);
+  async function hentRettigheder() {
+    const rettighederSvar = await fetch('/api/admin/rettigheder', {
+      headers: { 'x-auth-token': token },
+    });
+    if (rettighederSvar.ok) {
+      const raw = await rettighederSvar.json();
+      const normalized = normalizePermissions(raw);
+      setPermissions(normalized);
+      setTabs(readTabsFromPermissions(normalized));
+      setGroups(readGroupsFromPermissions(normalized));
+    }
+  }
 
   async function refreshRoller() {
-    const rollerSvar = await fetch('/api/auth/roller');
-    if (rollerSvar.ok) setRoller(await rollerSvar.json());
+    const svar = await fetch('/api/auth/roller');
+    if (svar.ok) setRoller(await svar.json());
   }
 
-  function buildCleanPermissions(payload) {
-    const cleaned = {};
-    Object.entries(payload).forEach(([rolle, cfg]) => {
-      const meta = { ...DEFAULT_META, ...(cfg.__meta || {}) };
-      let rights = cfg.rights || [];
-      if (meta.parentRole && payload[meta.parentRole]?.rights) {
-        const allowed = new Set(payload[meta.parentRole].rights || []);
-        rights = rights.filter((r) => allowed.has(r));
-      }
-      cleaned[rolle] = { rights, __meta: meta };
+  async function gemAlleRettigheder(nextPermissions) {
+    const payload = nextPermissions || permissions;
+    setPermissions(payload);
+    await fetch('/api/auth/admin/rettigheder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify(payload),
     });
-    cleaned[TABS_META_ROLE] = {
-      rights: [],
-      __meta: {
-        ...DEFAULT_META,
-        kind: 'system',
-        tabs: tabs.map((tab) => ({ id: tab.id, label: tab.label })),
+  }
+
+  function opdaterTabs(nextTabs) {
+    setTabs(nextTabs);
+    const withTabs = writeTabsToPermissions(permissions, nextTabs);
+    setPermissions(withTabs);
+    void gemAlleRettigheder(withTabs);
+  }
+
+  function opdaterGroups(nextGroups) {
+    setGroups(nextGroups);
+    const withGroups = writeGroupsToPermissions(permissions, nextGroups);
+    setPermissions(withGroups);
+    void gemAlleRettigheder(withGroups);
+  }
+
+  async function opretFane() {
+    const label = window.prompt('Navn på ny fane (fx Udvalg):');
+    if (!label?.trim()) return;
+    const id = normalizeTabId(label);
+    if (aktiveFaner.some((t) => t.id === id)) {
+      setAktivTabId(id);
+      return;
+    }
+    opdaterTabs([...aktiveFaner, { id, label: label.trim() }]);
+    setAktivTabId(id);
+  }
+
+  async function omdoebAktivFane() {
+    const current = aktiveFaner.find((t) => t.id === aktivTabId);
+    if (!current) return;
+    const nyt = window.prompt('Nyt navn for fanen:', current.label);
+    if (!nyt?.trim()) return;
+    const next = aktiveFaner.map((t) =>
+      t.id === aktivTabId ? { ...t, label: nyt.trim() } : t
+    );
+    opdaterTabs(next);
+  }
+
+  async function sletAktivFane() {
+    const current = aktiveFaner.find((t) => t.id === aktivTabId);
+    if (!current) return;
+    if (!window.confirm(`Slet fanen "${current.label}"?`)) return;
+    const next = aktiveFaner.filter((t) => t.id !== aktivTabId);
+    opdaterTabs(next.length ? next : DEFAULT_TABS);
+    setAktivTabId((next[0] || DEFAULT_TABS[0]).id);
+  }
+
+  function seBrugereIFane() {
+    navigate('/brugere');
+  }
+
+  async function opretLoesRolle() {
+    const navn = nyNavn.trim();
+    if (!navn) return;
+    const svar = await fetch('/api/admin/roller', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify({ navn }),
+    });
+    if (!svar.ok) return;
+    const nextPermissions = {
+      ...permissions,
+      [navn]: {
+        rights: [],
+        __meta: { ...DEFAULT_META, tabId: aktivTabId, groupId: null },
       },
     };
-    return cleaned;
+    await gemAlleRettigheder(nextPermissions);
+    await refreshRoller();
+    setNyNavn('');
+    setValgtRolleNavn(navn);
   }
 
-  async function gemRettigheder(payload = permissions) {
-    const cleaned = buildCleanPermissions(payload);
-    setPermissions(cleaned);
-    await fetch('/api/auth/admin/rettigheder', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-auth-token': token }, body: JSON.stringify(cleaned)
-    });
+  function opretGruppe() {
+    const label = nyNavn.trim();
+    if (!label) return;
+    const id = `grp_${Date.now().toString(36)}`;
+    const nextGroups = [...groups, { id, tabId: aktivTabId, label }];
+    opdaterGroups(nextGroups);
+    setNyNavn('');
   }
 
-  async function opretRolle(navn, meta) {
+  async function opretGruppeRolle(groupId) {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const navn = window.prompt(`Navn på ny rolle i gruppen "${group.label}":`);
+    if (!navn?.trim()) return;
     const clean = navn.trim();
-    if (!clean) return;
     const svar = await fetch('/api/admin/roller', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-auth-token': token }, body: JSON.stringify({ navn: clean })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify({ navn: clean }),
     });
     if (!svar.ok) return;
-    const next = { ...permissions, [clean]: { rights: permissions[clean]?.rights || [], __meta: { ...DEFAULT_META, ...meta } } };
-    setPermissions(next);
-    await gemRettigheder(next);
-    setValgtRolle(clean);
-    setNyRolleNavn('');
+    const nextPermissions = {
+      ...permissions,
+      [clean]: {
+        rights: [],
+        __meta: { ...DEFAULT_META, tabId: aktivTabId, groupId },
+      },
+    };
+    await gemAlleRettigheder(nextPermissions);
     await refreshRoller();
+    setValgtRolleNavn(clean);
   }
 
-  async function omdoebRolle(rolle) {
-    const nytNavn = window.prompt('Nyt navn', rolle)?.trim();
-    if (!nytNavn || nytNavn === rolle) return;
-    const svar = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/omdoeb`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-auth-token': token }, body: JSON.stringify({ nytNavn })
+  async function sletRolle(rolleNavn) {
+    if (!window.confirm(`Slet rollen "${rolleNavn}"?`)) return;
+    await fetch(`/api/admin/roller/${encodeURIComponent(rolleNavn)}/anmod-slet`, {
+      method: 'POST',
+      headers: { 'x-auth-token': token },
     });
-    if (!svar.ok) return;
-    const next = { ...permissions, [nytNavn]: { ...(permissions[rolle] || { rights: [], __meta: { ...DEFAULT_META } }) } };
-    delete next[rolle];
-    Object.keys(next).forEach((key) => { if (next[key]?.__meta?.parentRole === rolle) next[key].__meta.parentRole = nytNavn; });
-    setPermissions(next);
-    await gemRettigheder(next);
-    if (valgtRolle === rolle) setValgtRolle(nytNavn);
-    await refreshRoller();
-  }
-
-  async function sletRolle(rolle) {
-    if (!window.confirm(`Slet ${rolle}?`)) return;
-    const svar = await fetch(`/api/admin/roller/${encodeURIComponent(rolle)}/anmod-slet`, { method: 'POST', headers: { 'x-auth-token': token } });
-    if (!svar.ok) return;
-
-    const next = { ...permissions };
-    delete next[rolle];
-    Object.keys(next).forEach((key) => { if (next[key]?.__meta?.parentRole === rolle) next[key].__meta.parentRole = null; });
-    setPermissions(next);
-    await gemRettigheder(next);
-    if (valgtRolle === rolle) setValgtRolle('');
-    await refreshRoller();
-  }
-
-  function toggleRight(right) {
-    if (!valgtRolle) return;
-    setPermissions((prev) => {
-      const current = prev[valgtRolle] || { rights: [], __meta: { ...DEFAULT_META } };
-      const meta = { ...DEFAULT_META, ...(current.__meta || {}) };
-      const rightsSet = new Set(current.rights || []);
-      const hadRight = rightsSet.has(right);
-      if (hadRight) rightsSet.delete(right); else rightsSet.add(right);
-
-      const next = { ...prev, [valgtRolle]: { ...current, rights: [...rightsSet] } };
-
-      if (meta.kind === 'box') {
-        const parentRightsAfter = new Set(rightsSet);
-        const isAdding = !hadRight;
-        Object.entries(prev).forEach(([rolleNavn, cfg]) => {
-          const childMeta = { ...DEFAULT_META, ...(cfg.__meta || {}) };
-          if (childMeta.parentRole !== valgtRolle) return;
-          const childRights = new Set(cfg.rights || []);
-
-          if (childMeta.canManageUnderRole) {
-            // Ansvarlige roller spejler altid alle rettigheder fra overskriften
-            next[rolleNavn] = { ...cfg, rights: [...parentRightsAfter] };
-          } else {
-            // Ikke-ansvarlige roller kan have færre rettigheder, men mister rettigheder der fjernes fra overskriften
-            if (!isAdding) {
-              childRights.delete(right);
-              next[rolleNavn] = { ...cfg, rights: [...childRights] };
-            }
-          }
-        });
-      } else if (meta.parentRole && prev[meta.parentRole]?.rights) {
-        const allowed = new Set(prev[meta.parentRole].rights || []);
-        next[valgtRolle].rights = next[valgtRolle].rights.filter((r) => allowed.has(r));
+    const nextPermissions = { ...permissions };
+    delete nextPermissions[rolleNavn];
+    Object.entries(nextPermissions).forEach(([navn, cfg]) => {
+      if (cfg.__meta.groupId && !groups.find((g) => g.id === cfg.__meta.groupId)) {
+        nextPermissions[navn] = {
+          ...cfg,
+          __meta: { ...cfg.__meta, groupId: null },
+        };
       }
-
-      return next;
     });
+    await gemAlleRettigheder(nextPermissions);
+    await refreshRoller();
+    if (valgtRolleNavn === rolleNavn) setValgtRolleNavn('');
   }
 
-  function setAnsvarligForAktiv(checked) {
-    if (!valgtRolle) return;
-    setPermissions((prev) => {
-      const current = prev[valgtRolle] || { rights: [], __meta: { ...DEFAULT_META } };
-      const meta = { ...DEFAULT_META, ...(current.__meta || {}) };
-      const parent = meta.parentRole ? prev[meta.parentRole] : null;
-      let nextRights = current.rights || [];
-
-      // Når en rolle gøres ansvarlig for en overskrift, får den automatisk alle rettigheder fra overskriften
-      if (checked && parent?.rights) {
-        nextRights = [...parent.rights];
-      } else if (meta.parentRole && parent?.rights) {
-        // Ved fravalg sikrer vi stadig at rettigheder ikke overstiger overskriften
-        const allowed = new Set(parent.rights || []);
-        nextRights = nextRights.filter((r) => allowed.has(r));
+  function sletGruppe(groupId) {
+    const group = groups.find((g) => g.id === groupId);
+    if (!group) return;
+    if (!window.confirm(`Slet gruppen "${group.label}"? Roller i gruppen bliver liggende som løse roller.`)) return;
+    const nextGroups = groups.filter((g) => g.id !== groupId);
+    opdaterGroups(nextGroups);
+    const nextPermissions = { ...permissions };
+    Object.entries(nextPermissions).forEach(([navn, cfg]) => {
+      if (cfg.__meta.groupId === groupId) {
+        nextPermissions[navn] = {
+          ...cfg,
+          __meta: { ...cfg.__meta, groupId: null },
+        };
       }
-
-      const nextMeta = { ...meta, canManageUnderRole: checked };
-      return { ...prev, [valgtRolle]: { ...current, rights: nextRights, __meta: nextMeta } };
     });
+    void gemAlleRettigheder(nextPermissions);
   }
 
-  if (!bruger || !erAdmin) return <div className="min-h-screen flex items-center justify-center">Kun admin/owner har adgang.</div>;
+  async function omdoebRolle(rolleNavn) {
+    const nyt = window.prompt('Nyt navn for rollen:', rolleNavn);
+    if (!nyt?.trim() || nyt.trim() === rolleNavn) return;
+    const clean = nyt.trim();
+    const svar = await fetch(`/api/admin/roller/${encodeURIComponent(rolleNavn)}/omdoeb`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
+      body: JSON.stringify({ nytNavn: clean }),
+    });
+    if (!svar.ok) return;
 
-  const tabLabel = Object.fromEntries(tabs.map((tab) => [tab.id, tab.label]));
+    const nextPermissions = {};
+    Object.entries(permissions).forEach(([navn, cfg]) => {
+      if (navn === rolleNavn) {
+        nextPermissions[clean] = cfg;
+      } else {
+        nextPermissions[navn] = cfg;
+      }
+    });
+    await gemAlleRettigheder(nextPermissions);
+    await refreshRoller();
+    if (valgtRolleNavn === rolleNavn) setValgtRolleNavn(clean);
+  }
+
+  function toggleFaneRet(tabId, rightId) {
+    const current = permissions[TABS_META_ROLE]?.__meta?.tabRights || {};
+    const existing = new Set(current[tabId] || []);
+    if (existing.has(rightId)) existing.delete(rightId);
+    else existing.add(rightId);
+    const updated = {
+      ...permissions,
+      [TABS_META_ROLE]: {
+        rights: [],
+        __meta: {
+          kind: 'system',
+          tabs: (permissions[TABS_META_ROLE]?.__meta?.tabs || aktiveFaner).map((t) => ({
+            id: t.id,
+            label: t.label,
+          })),
+          tabRights: {
+            ...current,
+            [tabId]: Array.from(existing),
+          },
+        },
+      },
+    };
+    void gemAlleRettigheder(updated);
+  }
+
+  if (!bruger || !erAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Kun admin/owner har adgang.
+      </div>
+    );
+  }
+
+  const aktivFane = aktiveFaner.find((t) => t.id === aktivTabId) || aktiveFaner[0];
 
   return (
     <>
-      <div className="min-h-screen bg-gray-50 py-12 px-4">
-      <div className="max-w-6xl mx-auto space-y-4">
-        <button onClick={() => navigate('/kontrolpanel')} className="text-sm text-gray-500">← Tilbage</button>
-        <h1 className="text-3xl font-bold">Rettigheder & Roller</h1>
-
-        <div className="flex gap-2">
+      <div className="min-h-screen bg-gray-50 py-10 px-4">
+        <div className="max-w-6xl mx-auto space-y-5">
           <button
-            type="button"
-            title="Tilføj ekstra fane (fx udvalg, teams eller projekter)"
-            onClick={() => {
-              const label = window.prompt('Navn på ny fane');
-              if (!label?.trim()) return;
-              const id = normalizeTabId(label);
-              if (tabs.some((tab) => tab.id === id)) {
-                setAktivTab(id);
-                return;
-              }
-              const nextTabs = [...tabs, { id, label: label.trim() }];
-              setTabs(nextTabs);
-              setAktivTab(id);
-              setPermissions((prev) => ({
-                ...prev,
-                [TABS_META_ROLE]: {
-                  rights: [],
-                  __meta: {
-                    ...DEFAULT_META,
-                    kind: 'system',
-                    tabs: nextTabs.map((tab) => ({ id: tab.id, label: tab.label })),
-                  },
-                },
-              }));
-            }}
-            className="px-3 py-2 rounded-lg border text-sm bg-white hover:bg-gray-50"
+            onClick={() => navigate('/kontrolpanel')}
+            className="text-sm text-gray-500"
           >
-            +
+            ← Tilbage
           </button>
-          {tabs.map((tab) => (
-            <button key={tab.id} onClick={() => setAktivTab(tab.id)} className={`px-3 py-2 rounded-lg border text-sm ${aktivTab === tab.id ? 'bg-gray-900 text-white' : 'bg-white'}`}>{tab.label}</button>
-          ))}
-        </div>
 
-        <div className="grid lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border p-5 space-y-4">
-            <div className="space-y-2">
-              <h3 className="font-semibold">{tabLabel[aktivTab]}</h3>
-              <div className="flex gap-2">
-                <input value={nyRolleNavn} onChange={(e) => setNyRolleNavn(e.target.value)} className="border rounded-lg px-3 py-2 text-sm flex-1" placeholder={`Opret ${(tabLabel[aktivTab] || aktivTab).toLowerCase()}`} />
-                <button onClick={() => opretRolle(nyRolleNavn, { kind: aktivTab, parentRole: null })} className="px-3 py-2 bg-indigo-700 text-white rounded-lg text-sm">Opret</button>
-                <button onClick={() => opretRolle(nyRolleNavn, { kind: 'box', parentRole: null, scopeKind: aktivTab })} className="px-3 py-2 bg-green-700 text-white rounded-lg text-sm">Opret overskrift</button>
-              </div>
-              <div className="space-y-1">
-                {rollerTilTab.map((rolle) => <div key={rolle} className="flex items-center justify-between border rounded px-2 py-1"><button onClick={() => setValgtRolle(rolle)} className={`text-sm ${valgtRolle === rolle ? 'text-blue-700 font-medium' : ''}`}>{rolle}</button><div className="flex gap-1"><IconButton icon="✏️" title="Rediger navn" onClick={() => omdoebRolle(rolle)} /><IconButton icon="🗑️" title="Slet" onClick={() => sletRolle(rolle)} /><IconButton icon="🔐" title="Juster magt" onClick={() => setValgtRolle(rolle)} className="text-blue-700" /><IconButton icon="👥" title="Se brugere" onClick={() => navigate('/brugere')} /></div></div>)}
-              </div>
-            </div>
+          <h1 className="text-3xl font-bold">Rettigheder & Roller</h1>
 
-            <div className="space-y-2">
-              <h3 className="font-semibold">Overskrifter</h3>
-              {kasser.map((kasse) => (
-                <div key={kasse} className="border rounded-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <button onClick={() => setValgtRolle(kasse)} className={`font-medium text-left ${valgtRolle === kasse ? 'text-blue-700' : ''}`}>{kasse}</button>
-                    <div className="flex gap-1">
-                      <IconButton icon="➕" title="Tilføj rolle" onClick={() => { const navn = window.prompt('Navn på rolle under kasse'); if (navn) opretRolle(navn, { kind: 'role', parentRole: kasse, canManageUnderRole: false }); }} />
-                      <IconButton icon="✏️" title="Rediger navn" onClick={() => omdoebRolle(kasse)} />
-                      <IconButton icon="🔐" title="Juster rettigheder" onClick={() => setValgtRolle(kasse)} className="text-blue-700" />
-                      <IconButton icon="🗑️" title="Slet gruppe" onClick={() => sletRolle(kasse)} />
-                    </div>
-                  </div>
-                  {(underRoller[kasse] || []).map((rolle) => (
-                    <div key={rolle} className="flex items-center justify-between border rounded px-2 py-1">
-                      <button className={`text-sm ${valgtRolle === rolle ? 'text-blue-700 font-medium' : ''}`} onClick={() => setValgtRolle(rolle)}>{rolle}</button>
-                      <div className="flex gap-1"><IconButton icon="✏️" title="Rediger navn" onClick={() => omdoebRolle(rolle)} /><IconButton icon="🗑️" title="Slet rolle" onClick={() => sletRolle(rolle)} /><IconButton icon="🔐" title="Juster rettigheder" onClick={() => setValgtRolle(rolle)} className="text-blue-700" /><IconButton icon="👥" title="Se brugere" onClick={() => navigate('/brugere')} /></div>
-                    </div>
-                  ))}
-                </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              {aktiveFaner.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setAktivTabId(tab.id);
+                    setViserFaneRettigheder(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-full border text-sm ${
+                    aktivTabId === tab.id
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white text-gray-800'
+                  }`}
+                >
+                  {tab.label}
+                </button>
               ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Magt for rollen: {valgtRolle || '—'}</h3>
               <button
-                onClick={() => gemRettigheder()}
-                disabled={!valgtRolle}
-                className="px-3 py-2 bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm"
+                type="button"
+                onClick={opretFane}
+                className="px-3 py-1.5 rounded-full border text-sm bg-white hover:bg-gray-50"
+                title="Tilføj fane"
               >
-                Gem rettigheder
+                +
               </button>
             </div>
-            {!valgtRolle && (
-              <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                Vælg en rolle i venstre panel for at redigere rettigheder og ansvar.
+
+            {aktivFane && (
+              <div className="flex items-center gap-1 text-sm">
+                <button
+                  type="button"
+                  className="flex items-center gap-1 font-semibold px-2 py-1 rounded-full hover:bg-gray-100"
+                  onClick={() => setViserFaneRettigheder((v) => !v)}
+                  title="Klik for at vælge rettigheder for denne fane i højre panel"
+                >
+                  <span>{aktivFane.label}</span>
+                  <span className="text-xs text-gray-500">
+                    {viserFaneRettigheder ? '▼' : '▶'}
+                  </span>
+                </button>
+                <button
+                  onClick={omdoebAktivFane}
+                  className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                  title="Omdøb fane"
+                >
+                  ✏
+                </button>
+                <button
+                  onClick={sletAktivFane}
+                  className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                  title="Slet fane"
+                >
+                  🗑
+                </button>
+                <button
+                  onClick={seBrugereIFane}
+                  className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                  title="Se alle brugere under denne fane"
+                >
+                  👥
+                </button>
               </div>
             )}
-            {aktivMeta.parentRole && (
-              <div className="mb-3 border rounded-md px-3 py-2 bg-gray-50">
-                <label className="flex items-center gap-2 text-sm">
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-4 items-start">
+            <div className="bg-white border rounded-2xl p-4 space-y-4">
+              <div className="space-y-2">
+                <h2 className="font-semibold">
+                  Roller og grupper i fanen "{aktivFane?.label}"
+                </h2>
+                <div className="flex gap-2">
                   <input
-                    type="checkbox"
-                    checked={!!aktivMeta.canManageUnderRole}
-                    onChange={(e) => setAnsvarligForAktiv(e.target.checked)}
+                    value={nyNavn}
+                    onChange={(e) => setNyNavn(e.target.value)}
+                    placeholder="Navn på rolle eller gruppe"
+                    className="flex-1 border rounded-lg px-3 py-2 text-sm"
                   />
-                  <span>Gør denne rolle ansvarlig for: {aktivMeta.parentRole}</span>
-                </label>
+                  <button
+                    onClick={opretLoesRolle}
+                    className="px-3 py-2 rounded-lg bg-indigo-700 text-white text-sm"
+                  >
+                    Opret
+                  </button>
+                  <button
+                    onClick={opretGruppe}
+                    className="px-3 py-2 rounded-lg bg-green-700 text-white text-sm"
+                  >
+                    Opret gruppe
+                  </button>
+                </div>
               </div>
-            )}
-            <div className="space-y-3">
-              {RETTIGHEDS_TRAE.map((node) => {
-                const availableRights = node.rights.filter((r) => !allowedRightsForChild || allowedRightsForChild.has(r));
-                const nodeObjects = objektSektionMap[node.id] || [];
-                if (!availableRights.length && !nodeObjects.length) return null;
 
-                return (
-                <div key={node.id} className="border rounded-xl p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => {
-                        if (!availableRights.length) return;
-                        setAabenNode(aabenNode === node.id ? null : node.id);
-                      }}
-                      className={`text-sm font-medium ${availableRights.length ? 'hover:text-blue-700' : 'text-slate-700 cursor-default'}`}
-                    >
-                      {node.label}
-                    </button>
-                    {!!nodeObjects.length && (
-                      <span className="text-[11px] text-slate-500">{nodeObjects.length} nøgleobjekter</span>
-                    )}
-                  </div>
-
-                  {!!nodeObjects.length && (
-                    <div className="mt-2 space-y-1.5">
-                      {nodeObjects.map((obj) => (
-                        <div key={obj.rolle} className="flex items-center justify-between border rounded px-2 py-1">
-                          <div className="min-w-0">
-                            <p className="text-sm truncate">{obj.objectLabel}</p>
-                            <p className="text-[11px] text-gray-500 truncate">
-                              {obj.objectType === 'folder' ? `Mappe: ${obj.folderPath}` : `Kasse: ${obj.boxId}`}
-                            </p>
-                          </div>
+              <div className="space-y-3">
+                {rollerIaktivFane.length > 0 && (
+                  <div className="space-y-1">
+                    <h3 className="font-semibold text-sm">Løse roller</h3>
+                    {rollerIaktivFane.map((navn) => (
+                      <div
+                        key={navn}
+                        className="flex items-center justify-between border rounded-lg px-2 py-1.5"
+                      >
+                        <button
+                          onClick={() => setValgtRolleNavn(navn)}
+                          className={`text-sm text-left ${
+                            valgtRolleNavn === navn
+                              ? 'text-blue-700 font-medium'
+                              : ''
+                          }`}
+                        >
+                          {navn}
+                        </button>
+                        <div className="flex gap-1">
                           <button
-                            onClick={() => setAccessTarget({ boxId: obj.boxId, folderPath: obj.folderPath, label: obj.objectLabel })}
-                            className="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-50"
-                            title="Rediger adgang"
+                            className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                            onClick={() => omdoebRolle(navn)}
+                            title="Rediger navn"
                           >
-                            🔑
+                            ✏
+                          </button>
+                          <button
+                            className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                            onClick={() => sletRolle(navn)}
+                            title="Slet rolle"
+                          >
+                            🗑
+                          </button>
+                          <button
+                            className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                            onClick={() => navigate('/brugere')}
+                            title="Se medlemmer med denne rolle"
+                          >
+                            👥
                           </button>
                         </div>
-                      ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {grupperIaktivFane.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-sm">Grupper</h3>
+                    {grupperIaktivFane.map((group) => (
+                      <div
+                        key={group.id}
+                        className="border rounded-xl p-3 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-sm">
+                            {group.label}
+                          </span>
+                          <div className="flex gap-1">
+                            <button
+                              className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                              onClick={() => {
+                                const nyt = window.prompt(
+                                  'Nyt gruppenavn:',
+                                  group.label
+                                );
+                                if (!nyt?.trim()) return;
+                                const updated = groups.map((g) =>
+                                  g.id === group.id
+                                    ? { ...g, label: nyt.trim() }
+                                    : g
+                                );
+                                opdaterGroups(updated);
+                              }}
+                              title="Omdøb gruppe"
+                            >
+                              ✏
+                            </button>
+                            <button
+                              className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                              onClick={() => navigate('/brugere')}
+                              title="Se medlemmer i gruppen"
+                            >
+                              👥
+                            </button>
+                            <button
+                              className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                              onClick={() => opretGruppeRolle(group.id)}
+                              title="Tilføj rolle under gruppen"
+                            >
+                              ➕
+                            </button>
+                            <button
+                              className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                              onClick={() => sletGruppe(group.id)}
+                              title="Slet gruppe"
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        </div>
+
+                        {(grupperoller[group.id] || []).map((navn) => (
+                          <div
+                            key={navn}
+                            className="flex items-center justify-between border rounded-lg px-2 py-1"
+                          >
+                            <button
+                              onClick={() => setValgtRolleNavn(navn)}
+                              className={`text-sm text-left ${
+                                valgtRolleNavn === navn
+                                  ? 'text-blue-700 font-medium'
+                                  : ''
+                              }`}
+                            >
+                              {navn}
+                            </button>
+                            <div className="flex gap-1">
+                              <button
+                                className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                                onClick={() => omdoebRolle(navn)}
+                                title="Rediger navn"
+                              >
+                                ✏
+                              </button>
+                              <button
+                                className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                                onClick={() => sletRolle(navn)}
+                                title="Slet rolle"
+                              >
+                                🗑
+                              </button>
+                              <button
+                                className="px-2 py-1 text-xs rounded-full border bg-white hover:bg-gray-50"
+                                onClick={() => navigate('/brugere')}
+                                title="Se medlemmer med denne rolle"
+                              >
+                                👥
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white border rounded-2xl p-4 space-y-3">
+              {viserFaneRettigheder ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-semibold">
+                      Rettigheder for fane: {aktivFane?.label}
+                    </h2>
+                    <button
+                      onClick={() => gemAlleRettigheder(permissions)}
+                      className="px-3 py-1.5 text-xs rounded-full bg-gray-900 text-white"
+                    >
+                      💾
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Vælg hvilke rettigheder roller under denne fane i princippet
+                    må have. Roller kan aldrig få mere end det, du markerer her.
+                  </p>
+                  <div className="space-y-2">
+                    {['Sider', 'Kontrolpanel', 'Filer', 'Generelt'].map((gruppe) => {
+                      const rettighederForGruppe = alleFaneRettigheder.filter(
+                        (r) => r.gruppe === gruppe
+                      );
+                      if (!rettighederForGruppe.length) return null;
+                      return (
+                        <details
+                          key={gruppe}
+                          className="border rounded-lg bg-gray-50"
+                          open
+                        >
+                          <summary className="cursor-pointer px-3 py-1.5 text-xs font-semibold text-gray-700 flex items-center gap-2">
+                            <span>▾</span>
+                            <span>{gruppe}</span>
+                          </summary>
+                          <div className="px-3 pb-2 pt-1 grid md:grid-cols-2 gap-1 text-xs">
+                            {rettighederForGruppe.map((r) => {
+                              const checked = !!(
+                                faneRettigheder[aktivTabId] || []
+                              ).includes(r.id);
+                              return (
+                                <label
+                                  key={r.id}
+                                  className="flex items-center gap-2 border rounded px-2 py-1 bg-white"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      toggleFaneRet(aktivTabId, r.id)
+                                    }
+                                  />
+                                  <span>{r.label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-semibold">
+                      Rettigheder for rolle:{' '}
+                      {valgtRolleNavn || (
+                        <span className="text-gray-500">–</span>
+                      )}
+                    </h2>
+                    <button
+                      disabled={!valgtRolleNavn}
+                      onClick={() => gemAlleRettigheder(permissions)}
+                      className="px-3 py-1.5 text-xs rounded-full bg-gray-900 text-white disabled:bg-gray-400"
+                      title="Gem rettigheder"
+                    >
+                      💾
+                    </button>
+                  </div>
+
+                  {!valgtRolleNavn && (
+                    <p className="text-xs text-gray-500">
+                      Vælg en rolle i venstre side for at tildele rettigheder.
+                    </p>
+                  )}
+
+                  {valgtRolleNavn && aktivRolleConfig && (
+                    <div className="space-y-2 text-sm">
+                      <p className="text-xs text-gray-500">
+                        Rettigheder begrænses af fanens loft. Du kan ikke give
+                        denne rolle mere end det, der er markeret under fanens
+                        rettigheder.
+                      </p>
+                      <div className="space-y-2">
+                        {['Sider', 'Kontrolpanel', 'Filer', 'Generelt'].map(
+                          (gruppe) => {
+                            const rettighederForGruppe =
+                              alleFaneRettigheder.filter(
+                                (r) => r.gruppe === gruppe
+                              );
+                            if (!rettighederForGruppe.length) return null;
+                            return (
+                              <details
+                                key={gruppe}
+                                className="border rounded-lg bg-gray-50"
+                                open
+                              >
+                                <summary className="cursor-pointer px-3 py-1.5 text-xs font-semibold text-gray-700 flex items-center gap-2">
+                                  <span>▾</span>
+                                  <span>{gruppe}</span>
+                                </summary>
+                                <div className="px-3 pb-2 pt-1 grid md:grid-cols-2 gap-1 text-xs">
+                                  {rettighederForGruppe.map((r) => {
+                                    const faneSet = new Set(
+                                      faneRettigheder[aktivTabId] || []
+                                    );
+                                    const allowed = faneSet.has(r.id);
+                                    const roleHas = (
+                                      aktivRolleConfig.rights || []
+                                    ).includes(r.id);
+                                    return (
+                                      <label
+                                        key={r.id}
+                                        className={`flex items-center gap-2 border rounded px-2 py-1 ${
+                                          allowed
+                                            ? 'bg-white'
+                                            : 'bg-gray-100 opacity-60'
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          disabled={!allowed}
+                                          checked={roleHas && allowed}
+                                          onChange={() => {
+                                            const current =
+                                              normalizePermissions(permissions);
+                                            const cfg =
+                                              current[valgtRolleNavn] ||
+                                              aktivRolleConfig;
+                                            const set = new Set(
+                                              cfg.rights || []
+                                            );
+                                            if (set.has(r.id)) set.delete(r.id);
+                                            else set.add(r.id);
+                                            const next = {
+                                              ...current,
+                                              [valgtRolleNavn]: {
+                                                ...cfg,
+                                                rights: Array.from(set),
+                                              },
+                                            };
+                                            setPermissions(next);
+                                          }}
+                                        />
+                                        <span>{r.label}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </details>
+                            );
+                          }
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {availableRights.length > 0 && aabenNode === node.id && (
-                    <div className="mt-2 space-y-2">
-                      {availableRights.map((r) => (
-                          <label key={r} className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={(aktivConfig.rights || []).includes(r)}
-                              onChange={() => toggleRight(r)}
-                            />
-                            <span>{RIGHT_LABELS[r] || r}</span>
-                          </label>
-                        ))}
-                    </div>
-                  )}
+                  <div className="border-t pt-3 mt-3">
+                    <p className="text-xs text-gray-500">
+                      Brug nøgle-ikonet rundt omkring på siden for at finjustere,
+                      hvilke roller der har adgang til konkrete mapper og bokse.
+                      Ændringer der bliver lavet dér, synkroniseres med denne
+                      side.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {Object.keys(objektSektionMap).length > 0 && (
+                <div className="border-t pt-3 mt-3 space-y-2">
+                  <h3 className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                    <span>🔑</span>
+                    <span>Nøgleobjekter</span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">
+                    Her kan du åbne nøglepanelet for konkrete kasser og mapper.
+                    Når du gemmer der, opdateres rettighederne her på siden.
+                  </p>
+                  <div className="space-y-1.5 text-xs">
+                    {Object.entries(objektSektionMap).map(([key, section]) => (
+                      <details key={key} className="border rounded-lg bg-gray-50" open>
+                        <summary className="cursor-pointer px-3 py-1.5 font-semibold text-gray-700 flex items-center gap-2">
+                          <span>▾</span>
+                          <span>{section.label}</span>
+                          <span className="text-[11px] text-gray-400">
+                            ({section.items.length})
+                          </span>
+                        </summary>
+                        <div className="px-3 pb-2 pt-1 space-y-1">
+                          {key === 'mindmap'
+                            ? Object.entries(
+                                section.items.reduce((acc, obj) => {
+                                  const g = obj.groupLabel || 'Uden gruppe';
+                                  if (!acc[g]) acc[g] = [];
+                                  acc[g].push(obj);
+                                  return acc;
+                                }, {})
+                              ).map(([groupLabel, items]) => (
+                                <div key={groupLabel} className="space-y-1">
+                                  <div className="text-[11px] font-semibold text-gray-600 px-1 mt-1">
+                                    {groupLabel}
+                                  </div>
+                                  {items
+                                    .slice()
+                                    .sort((a, b) =>
+                                      a.objectLabel.localeCompare(b.objectLabel, 'da')
+                                    )
+                                    .map((obj) => (
+                                      <div
+                                        key={`${obj.boxId}-${obj.folderPath || 'root'}`}
+                                        className="flex items-center justify-between border rounded px-2 py-1 bg-white"
+                                      >
+                                        <div className="min-w-0">
+                                          <p className="truncate">{obj.objectLabel}</p>
+                                          <p className="text-[10px] text-gray-500 truncate">
+                                            {obj.objectType === 'mindmap-node'
+                                              ? `Mindmap-node: ${obj.folderPath}`
+                                              : obj.objectType === 'folder'
+                                              ? `Mappe: ${obj.folderPath}`
+                                              : `Kasse: ${obj.boxId}`}
+                                          </p>
+                                        </div>
+                                        {obj.objectType === 'mindmap-node' && valgtRolleNavn ? (
+                                          <div className="flex flex-wrap gap-2 pl-3 text-[10px] text-gray-700">
+                                            {(() => {
+                                              const rules = mindmapNodeRules[obj.folderPath] || {};
+                                              const editContentRoles = Array.isArray(rules.editContentRoles)
+                                                ? rules.editContentRoles
+                                                : [];
+                                              const editColorRoles = Array.isArray(rules.editColorRoles)
+                                                ? rules.editColorRoles
+                                                : [];
+                                              const deleteNodeRoles = Array.isArray(rules.deleteNodeRoles)
+                                                ? rules.deleteNodeRoles
+                                                : [];
+                                              const editAssociationRoles = Array.isArray(rules.editAssociationRoles)
+                                                ? rules.editAssociationRoles
+                                                : [];
+
+                                              const hasEditContent = editContentRoles.includes(valgtRolleNavn);
+                                              const hasEditColor = editColorRoles.includes(valgtRolleNavn);
+                                              const hasDelete = deleteNodeRoles.includes(valgtRolleNavn);
+                                              const hasEditAssociation = editAssociationRoles.includes(valgtRolleNavn);
+
+                                              return (
+                                                <>
+                                                  <label className="flex items-center gap-1">
+                                                    <input type="checkbox" readOnly checked={hasEditContent} />
+                                                    <span>Indhold</span>
+                                                  </label>
+                                                  <label className="flex items-center gap-1">
+                                                    <input type="checkbox" readOnly checked={hasEditColor} />
+                                                    <span>Farver</span>
+                                                  </label>
+                                                  <label className="flex items-center gap-1">
+                                                    <input type="checkbox" readOnly checked={hasDelete} />
+                                                    <span>Slet</span>
+                                                  </label>
+                                                  <label className="flex items-center gap-1">
+                                                    <input type="checkbox" readOnly checked={hasEditAssociation} />
+                                                    <span>Association</span>
+                                                  </label>
+                                                </>
+                                              );
+                                            })()}
+                                          </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => navigate('/mindmap')}
+                                            className="px-2 py-1 text-[11px] rounded-full border bg-white hover:bg-gray-50"
+                                            title="Gå til mindmap"
+                                          >
+                                            ↗
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                </div>
+                              ))
+                            : section.items.map((obj) => (
+                                <div
+                                  key={`${obj.boxId}-${obj.folderPath || 'root'}`}
+                                  className="flex items-center justify-between border rounded px-2 py-1 bg-white"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="truncate">{obj.objectLabel}</p>
+                                    <p className="text-[10px] text-gray-500 truncate">
+                                      {obj.objectType === 'folder'
+                                        ? `Mappe: ${obj.folderPath}`
+                                        : `Kasse: ${obj.boxId}`}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAccessTarget({
+                                        boxId: obj.boxId,
+                                        folderPath: obj.folderPath,
+                                        label: obj.objectLabel,
+                                        objectType: obj.objectType,
+                                      })
+                                    }
+                                    className="px-2 py-1 text-[11px] rounded-full border bg-white hover:bg-gray-50"
+                                    title="Rediger adgang for dette objekt"
+                                  >
+                                    🔑
+                                  </button>
+                                </div>
+                              ))}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
                 </div>
-                );
-              })}
+              )}
             </div>
           </div>
         </div>
-      </div>
       </div>
       {accessTarget && (
         <AccessKeyPanel
@@ -567,6 +1109,8 @@ export default function RettighederAdmin() {
           boxId={accessTarget.boxId}
           folderPath={accessTarget.folderPath}
           objectLabel={accessTarget.label}
+          objectType={accessTarget.objectType}
+          showHideToggle={true}
         />
       )}
     </>

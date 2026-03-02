@@ -9,23 +9,6 @@ const EMPTY_NODE_RULE = {
   deleteNodeRoles: [],
   editAssociationRoles: [],
 };
-const DEFAULT_ROLE_META = { kind: 'authority', parentRole: null, canManageUnderRole: false, scopeKind: null };
-
-function normalizeTabId(input = '') {
-  const clean = String(input || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9æøå]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return clean || 'authority';
-}
-
-function getTabForRole(rolle, metaMap, tabs) {
-  const meta = metaMap?.[rolle] || DEFAULT_ROLE_META;
-  const candidate = meta.kind === 'box' ? (meta.scopeKind || 'authority') : (meta.kind || 'authority');
-  const id = normalizeTabId(candidate);
-  return (tabs || []).some((tab) => tab.id === id) ? id : 'authority';
-}
 
 function normalizeNodeRule(rule = {}) {
   return {
@@ -83,10 +66,9 @@ const InfoPanel = ({
   canUseMindmapControl = false,
   canConfigurePermissions = false,
   availableRoles = [],
-  roleTabs = [],
+  tabs = [],
+  groups = [],
   roleMetaMap = {},
-  topRolesByTab = {},
-  underRoller = {},
   nodePermissionRule = null,
   nodeCapabilities = null,
   onNodePermissionChange,
@@ -116,6 +98,39 @@ const InfoPanel = ({
   const [showNodeKeyPanel, setShowNodeKeyPanel] = useState(false);
   const [nodePermissionRows, setNodePermissionRows] = useState([]);
 
+  const [npTabId, setNpTabId] = useState('');
+  const [npShowScope, setNpShowScope] = useState(false);
+  const [npScope, setNpScope] = useState(''); // 'role:<rolle>' | 'group:<id>'
+  const [npGroupRole, setNpGroupRole] = useState('');
+
+  useEffect(() => {
+    if (!tabs.length) return;
+    if (!npTabId || !(tabs || []).some((t) => t.id === npTabId)) {
+      setNpTabId(tabs[0].id);
+    }
+  }, [tabs, npTabId]);
+
+  const npGroupsInTab = (groups || []).filter((g) => g.tabId === npTabId);
+
+  const npTopRolesInTab = (availableRoles || [])
+    .filter((rolle) => {
+      const meta = roleMetaMap?.[rolle] || {};
+      if (meta.groupId) return false;
+      const fallback = tabs?.[0]?.id || 'admins';
+      const tabId = meta.tabId || fallback;
+      return tabId === npTabId;
+    })
+    .sort((a, b) => a.localeCompare(b, 'da'));
+
+  const npRolesInSelectedGroup = (availableRoles || [])
+    .filter((rolle) => {
+      const groupId = npScope.startsWith('group:') ? npScope.split(':')[1] : '';
+      if (!groupId) return false;
+      const meta = roleMetaMap?.[rolle] || {};
+      return meta.groupId === groupId;
+    })
+    .sort((a, b) => a.localeCompare(b, 'da'));
+
   // Initialize state based on element type
   useEffect(() => {
     if (isNode) {
@@ -137,17 +152,8 @@ const InfoPanel = ({
 
   useEffect(() => {
     if (!isNode) return;
-    const rows = nodeRuleToRows(nodePermissionRule || EMPTY_NODE_RULE).map((row) => {
-      const tabId = getTabForRole(row.rolle, roleMetaMap, roleTabs);
-      const parentRole = roleMetaMap[row.rolle]?.parentRole || null;
-      return {
-        ...row,
-        uiTabId: tabId,
-        uiTopRole: parentRole || row.rolle,
-      };
-    });
-    setNodePermissionRows(rows);
-  }, [isNode, isGroupNode, nodePermissionRule, element.data?.id, roleMetaMap, roleTabs]);
+    setNodePermissionRows(nodeRuleToRows(nodePermissionRule || EMPTY_NODE_RULE));
+  }, [isNode, isGroupNode, nodePermissionRule, element.data?.id]);
 
   useEffect(() => {
     if (!isNode) setShowNodeKeyPanel(false);
@@ -294,52 +300,31 @@ const InfoPanel = ({
     onNodePermissionChange?.(element.data.id, rowsToNodeRule(nextRows));
   };
 
-  const addNodePermissionRole = () => {
+  const addNodePermissionRoles = (rolesToAdd = []) => {
     if (!isNode) return;
     const used = new Set(nodePermissionRows.map((row) => row.rolle));
-    const defaultTabId = roleTabs[0]?.id || 'authority';
-    const topRoles = topRolesByTab[defaultTabId] || [];
-    const nextRole = topRoles.find((rolle) => !used.has(rolle)) || availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
-    if (!nextRole) return;
-    updateNodePermissionRows([
-      ...nodePermissionRows,
-      {
-        id: `row-${nextRole}-${Date.now()}`,
-        rolle: nextRole,
-        uiTabId: getTabForRole(nextRole, roleMetaMap, roleTabs),
-        uiTopRole: roleMetaMap[nextRole]?.parentRole || nextRole,
+    const nextRows = [...nodePermissionRows];
+    rolesToAdd.forEach((rolle) => {
+      const clean = String(rolle || '').trim();
+      if (!clean || used.has(clean)) return;
+      used.add(clean);
+      nextRows.push({
+        id: `row-${clean}-${Date.now()}`,
+        rolle: clean,
         canEditContent: true,
         canEditColor: false,
         canDelete: false,
         canEditAssociation: false,
-      },
-    ]);
+      });
+    });
+    updateNodePermissionRows(nextRows);
   };
 
   const updateNodePermissionRow = (index, patch) => {
     if (!isNode) return;
-    const nextRows = nodePermissionRows.map((row, rowIndex) => {
-      if (rowIndex !== index) return row;
-      const next = { ...row, ...patch };
-      if (Object.prototype.hasOwnProperty.call(patch, 'uiTabId')) {
-        const tabTopRoles = topRolesByTab[patch.uiTabId] || [];
-        const nextTop = tabTopRoles[0] || next.uiTopRole || next.rolle;
-        const children = underRoller[nextTop] || [];
-        return {
-          ...next,
-          uiTabId: patch.uiTabId,
-          uiTopRole: nextTop,
-          rolle: children.includes(next.rolle) || next.rolle === nextTop ? next.rolle : nextTop,
-        };
-      }
-      if (Object.prototype.hasOwnProperty.call(patch, 'uiTopRole')) {
-        const children = underRoller[patch.uiTopRole] || [];
-        const resolvedRole = children.includes(next.rolle) ? next.rolle : patch.uiTopRole;
-        return { ...next, uiTopRole: patch.uiTopRole, rolle: resolvedRole };
-      }
-      return next;
-    });
-    updateNodePermissionRows(nextRows);
+    updateNodePermissionRows(
+      nodePermissionRows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row))
+    );
   };
 
   const removeNodePermissionRow = (index) => {
@@ -610,6 +595,7 @@ const InfoPanel = ({
                 </div>
               </div>
             )}
+
 
             {isEditingText && canEditContent ? (
               <>
@@ -1106,44 +1092,14 @@ const InfoPanel = ({
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <select
-                      value={row.uiTabId || roleTabs[0]?.id || 'authority'}
-                      onChange={(event) => updateNodePermissionRow(index, { uiTabId: event.target.value })}
-                      style={{
-                        flex: 1,
-                        fontSize: '13px',
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        backgroundColor: '#ffffff',
-                      }}
-                    >
-                      {roleTabs.map((tab) => (
-                        <option key={`${row.id}-tab-${tab.id}`} value={tab.id}>
-                          {tab.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <select
-                      value={row.uiTopRole || row.rolle}
-                      onChange={(event) => updateNodePermissionRow(index, { uiTopRole: event.target.value })}
-                      style={{
-                        flex: 1,
-                        fontSize: '13px',
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        backgroundColor: '#ffffff',
-                      }}
-                    >
-                      {(topRolesByTab[row.uiTabId || roleTabs[0]?.id || 'authority'] || []).map((rolle) => (
-                        <option key={`${row.id}-${rolle}`} value={rolle}>
-                          {rolle}
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                        Rolle
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#0f172a', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {row.rolle}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeNodePermissionRow(index)}
@@ -1160,34 +1116,6 @@ const InfoPanel = ({
                       ✕
                     </button>
                   </div>
-                  {!!underRoller[row.uiTopRole || row.rolle]?.length && (
-                    <select
-                      value={(underRoller[row.uiTopRole || row.rolle] || []).includes(row.rolle) ? row.rolle : ''}
-                      onChange={(event) => {
-                        const selected = event.target.value;
-                        if (!selected) {
-                          updateNodePermissionRow(index, { rolle: row.uiTopRole || row.rolle });
-                          return;
-                        }
-                        updateNodePermissionRow(index, { rolle: selected });
-                      }}
-                      style={{
-                        width: '100%',
-                        fontSize: '13px',
-                        padding: '6px 8px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        backgroundColor: '#ffffff',
-                      }}
-                    >
-                      <option value="">Ingen underrolle</option>
-                      {(underRoller[row.uiTopRole || row.rolle] || []).map((rolle) => (
-                        <option key={`${row.id}-sub-${rolle}`} value={rolle}>
-                          {rolle}
-                        </option>
-                      ))}
-                    </select>
-                  )}
 
                   <div style={{ display: 'grid', gap: '6px' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
@@ -1226,23 +1154,173 @@ const InfoPanel = ({
                 </div>
               ))}
 
-              <button
-                type="button"
-                onClick={addNodePermissionRole}
-                style={{
-                  justifySelf: 'start',
-                  border: '1px dashed #94a3b8',
-                  backgroundColor: '#ffffff',
-                  color: '#334155',
-                  borderRadius: '999px',
-                  padding: '6px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                + Tilføj rolle
-              </button>
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '10px', display: 'grid', gap: '8px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                  Tilføj rolle (trinvis)
+                </div>
+
+                <div style={{ display: 'grid', gap: '6px' }}>
+                  <div style={{ display: 'grid', gap: '4px' }}>
+                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>Fane</div>
+                    <select
+                      value={npTabId}
+                      onChange={(e) => {
+                        setNpTabId(e.target.value);
+                        setNpScope('');
+                        setNpGroupRole('');
+                        setNpShowScope(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      {(tabs || []).map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {!npShowScope ? (
+                    <button
+                      type="button"
+                      onClick={() => setNpShowScope(true)}
+                      style={{
+                        justifySelf: 'start',
+                        border: '1px dashed #94a3b8',
+                        backgroundColor: '#ffffff',
+                        color: '#334155',
+                        borderRadius: '999px',
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      + Vælg rolle / gruppe (valgfrit)
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ display: 'grid', gap: '4px' }}>
+                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>Rolle eller gruppe</div>
+                        <select
+                          value={npScope}
+                          onChange={(e) => {
+                            setNpScope(e.target.value);
+                            setNpGroupRole('');
+                          }}
+                          style={{
+                            width: '100%',
+                            fontSize: '13px',
+                            padding: '6px 8px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: '#ffffff',
+                          }}
+                        >
+                          <option value="">(valgfrit) Vælg rolle eller gruppe</option>
+                          {npTopRolesInTab.map((rolle) => (
+                            <option key={`role-${rolle}`} value={`role:${rolle}`}>
+                              Rolle: {rolle}
+                            </option>
+                          ))}
+                          {npGroupsInTab.map((g) => (
+                            <option key={`group-${g.id}`} value={`group:${g.id}`}>
+                              Gruppe: {g.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {npScope.startsWith('group:') && (
+                        <div style={{ display: 'grid', gap: '4px' }}>
+                          <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>
+                            Rolle i gruppen (valgfrit)
+                          </div>
+                          <select
+                            value={npGroupRole}
+                            onChange={(e) => setNpGroupRole(e.target.value)}
+                            style={{
+                              width: '100%',
+                              fontSize: '13px',
+                              padding: '6px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: '#ffffff',
+                            }}
+                          >
+                            <option value="">Hele gruppen</option>
+                            {npRolesInSelectedGroup.map((rolle) => (
+                              <option key={`grole-${rolle}`} value={rolle}>
+                                {rolle}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextRoles = [];
+                            if (npScope.startsWith('role:')) {
+                              nextRoles.push(npScope.slice('role:'.length));
+                            } else if (npScope.startsWith('group:')) {
+                              if (npGroupRole) nextRoles.push(npGroupRole);
+                              else nextRoles.push(...npRolesInSelectedGroup);
+                            }
+                            addNodePermissionRoles(nextRoles);
+                            setNpScope('');
+                            setNpGroupRole('');
+                            setNpShowScope(false);
+                          }}
+                          disabled={!npScope}
+                          style={{
+                            flex: 1,
+                            border: 'none',
+                            backgroundColor: npScope ? '#0f172a' : '#94a3b8',
+                            color: '#ffffff',
+                            borderRadius: '10px',
+                            padding: '8px 10px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: npScope ? 'pointer' : 'not-allowed',
+                          }}
+                        >
+                          Tilføj
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNpScope('');
+                            setNpGroupRole('');
+                            setNpShowScope(false);
+                          }}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: '#ffffff',
+                            color: '#334155',
+                            borderRadius: '10px',
+                            padding: '8px 10px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Annuller
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

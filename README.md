@@ -267,7 +267,7 @@ cd /home/oskar/DFLelev/DFLelev_nas && node server.js
 - Tilføjet 9 nye rolle-management endpoints under `/api/admin/roller/*` (se API-sektion)
 
 **web/src/pages/RettighederAdmin.jsx**
-- Tilføjet "🏷️ Rolle-katalog"-fane: fuld CRUD, to-admin-sletningsflow, sync-knap, gendan
+- Redesignet Rettigheder & Roller med faner (Admins/Årgange/Kollegie), grupper og løse roller samt simplere flow til at oprette/omdøbe/slette faner, grupper og roller. Faner definerer nu et rettighedsloft, som rollerne i fanen ikke kan overskride.
 
 **web/src/pages/OpretKonto.jsx**
 - Admin/Owner ekskluderes fra myndigheder-dropdown
@@ -275,12 +275,9 @@ cd /home/oskar/DFLelev/DFLelev_nas && node server.js
 
 **Arbejdsprocedure for denne version:**
 ```bash
-# Flyt filer fra ~/Downloads/
-cp ~/Downloads/BoxDetail.jsx web/src/pages/BoxDetail.jsx
-cp ~/Downloads/OpretKonto.jsx web/src/pages/OpretKonto.jsx
-cp ~/Downloads/RettighederAdmin.jsx web/src/pages/RettighederAdmin.jsx
-cp ~/Downloads/admin.js server/routes/admin.js
+npm install
 npm run db:push
+npm run dev
 ```
 
-*Sidst opdateret: 2026-02-18 — Version 2.0.5*
+*Sidst opdateret: 2026-03-02 — Version 2.0.6 (roller & nøglepanel overhaul)*

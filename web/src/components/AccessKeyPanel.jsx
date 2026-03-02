@@ -2,22 +2,54 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getFolderAccessRules, saveFolderAccessRules } from '../utils/fileService';
 
-const DEFAULT_META = { kind: 'authority', parentRole: null, canManageUnderRole: false, scopeKind: null };
+const DEFAULT_META = { kind: 'role', tabId: null, groupId: null };
+const TABS_META_ROLE = '__dfl_tabs__';
+const GROUPS_META_ROLE = '__dfl_groups__';
+
+const FALLBACK_TABS = [
+  { id: 'admins', label: 'Admins' },
+  { id: 'year', label: 'Årgange' },
+  { id: 'dorm', label: 'Kollegie' },
+];
 
 function normalizePermissions(data = {}) {
   const normalized = {};
   Object.entries(data || {}).forEach(([rolle, config]) => {
+    if (rolle === TABS_META_ROLE || rolle === GROUPS_META_ROLE) {
+      normalized[rolle] = config;
+      return;
+    }
     if (Array.isArray(config)) {
       normalized[rolle] = { rights: config, __meta: { ...DEFAULT_META } };
       return;
     }
     const baseMeta = { ...DEFAULT_META, ...(config?.__meta || {}) };
-    if (baseMeta.kind === 'box' && !baseMeta.scopeKind) {
-      baseMeta.scopeKind = 'authority';
-    }
     normalized[rolle] = { rights: config?.rights || [], __meta: baseMeta };
   });
   return normalized;
+}
+
+function readTabsFromPermissions(permissionMap) {
+  const entry = permissionMap[TABS_META_ROLE];
+  if (!entry?.__meta?.tabs || !Array.isArray(entry.__meta.tabs)) {
+    return FALLBACK_TABS;
+  }
+  const seen = new Map();
+  FALLBACK_TABS.forEach((t) => seen.set(t.id, t));
+  entry.__meta.tabs.forEach((t) => {
+    const id = String(t.id || t.label || '').trim() || 'ny-fane';
+    const label = String(t.label || t.id || id);
+    seen.set(id, { id, label });
+  });
+  return Array.from(seen.values());
+}
+
+function readGroupsFromPermissions(permissionMap) {
+  const entry = permissionMap[GROUPS_META_ROLE];
+  if (!entry?.__meta?.groups || !Array.isArray(entry.__meta.groups)) {
+    return [];
+  }
+  return entry.__meta.groups;
 }
 
 /**
@@ -46,66 +78,69 @@ function AccessKeyPanel({
   const [error, setError] = useState('');
   const [hideObject, setHideObject] = useState(false);
   const [nyRolle, setNyRolle] = useState('');
-  const [nyUnderRolle, setNyUnderRolle] = useState({});
+  const [collapsedRoles, setCollapsedRoles] = useState({});
+
+  const [valgtTabId, setValgtTabId] = useState('admins');
+  const [valgtScope, setValgtScope] = useState(''); // "role:<rolle>" eller "group:<id>"
+  const [valgtUnderRolle, setValgtUnderRolle] = useState('');
 
   const rolleMetaMap = useMemo(
-    () => Object.fromEntries(Object.entries(permissionMap).map(([rolle, cfg]) => [rolle, cfg?.__meta || { ...DEFAULT_META }])),
+    () =>
+      Object.fromEntries(
+        Object.entries(permissionMap)
+          .filter(([rolle]) => rolle !== TABS_META_ROLE && rolle !== GROUPS_META_ROLE)
+          .map(([rolle, cfg]) => [rolle, cfg?.__meta || { ...DEFAULT_META }])
+      ),
     [permissionMap]
   );
 
-  const underRoller = useMemo(() => {
-    const result = {};
-    Object.entries(rolleMetaMap).forEach(([rolle, meta]) => {
-      const parent = meta?.parentRole;
-      if (!parent) return;
-      if (!result[parent]) result[parent] = [];
-      result[parent].push(rolle);
-    });
-    Object.keys(result).forEach((k) => result[k].sort((a, b) => a.localeCompare(b, 'da')));
-    return result;
-  }, [rolleMetaMap]);
+  const tabs = useMemo(() => readTabsFromPermissions(permissionMap), [permissionMap]);
+  const groups = useMemo(() => readGroupsFromPermissions(permissionMap), [permissionMap]);
 
-  const topLevelRoller = useMemo(
-    () => alleRoller.filter((rolle) => !(rolleMetaMap[rolle]?.parentRole)),
-    [alleRoller, rolleMetaMap]
+  useEffect(() => {
+    if (!tabs.length) return;
+    if (!tabs.some((t) => t.id === valgtTabId)) {
+      setValgtTabId(tabs[0].id);
+    }
+  }, [tabs, valgtTabId]);
+
+  const grupperIaktivFane = useMemo(
+    () => groups.filter((g) => g.tabId === valgtTabId),
+    [groups, valgtTabId]
   );
+
+  const topLevelRoller = useMemo(() => {
+    return alleRoller.filter((rolle) => {
+      const meta = rolleMetaMap[rolle] || DEFAULT_META;
+      if (meta.groupId) return false;
+      const tabId = meta.tabId || tabs[0]?.id || 'admins';
+      return tabId === valgtTabId;
+    });
+  }, [alleRoller, rolleMetaMap, tabs, valgtTabId]);
+
+  const rollerIValgtGruppe = useMemo(() => {
+    const scope = valgtScope.startsWith('group:') ? valgtScope.split(':')[1] : '';
+    if (!scope) return [];
+    return alleRoller.filter(
+      (rolle) => (rolleMetaMap[rolle] || DEFAULT_META).groupId === scope
+    );
+  }, [alleRoller, rolleMetaMap, valgtScope]);
 
   const brugteRoller = useMemo(() => new Set(rules.map((r) => r.rolle)), [rules]);
-  const tilgaengeligeTopLevelRoller = useMemo(
-    () => topLevelRoller.filter((rolle) => !brugteRoller.has(rolle)),
-    [topLevelRoller, brugteRoller]
-  );
 
-  const roleToRuleMap = useMemo(
-    () => Object.fromEntries(rules.map((rule) => [rule.rolle, rule])),
-    [rules]
-  );
+  const tilgaengeligeRollerIScope = useMemo(() => {
+    const scopeIsGroup = valgtScope.startsWith('group:');
+    if (scopeIsGroup) return rollerIValgtGruppe.filter((rolle) => !brugteRoller.has(rolle));
+    return topLevelRoller.filter((rolle) => !brugteRoller.has(rolle));
+  }, [topLevelRoller, rollerIValgtGruppe, brugteRoller, valgtScope]);
 
-  const canUseRightFromParent = (rule, rightKey) => {
-    if (!rule.uiParentRole) return true;
-    return !!roleToRuleMap[rule.uiParentRole]?.[rightKey];
-  };
-
-  const normalizeRules = (inputRules, metaMap = rolleMetaMap) => {
-    const roleSet = new Set(inputRules.map((r) => r.rolle));
-    return inputRules.map((rule) => {
-      const metaParent = metaMap[rule.rolle]?.parentRole || null;
-      let uiParentRole = null;
-      if (metaParent && roleSet.has(metaParent)) {
-        uiParentRole = metaParent;
-      } else if (rule.uiParentRole && roleSet.has(rule.uiParentRole)) {
-        uiParentRole = rule.uiParentRole;
-      }
-      const parent = uiParentRole ? inputRules.find((r) => r.rolle === uiParentRole) : null;
-      return {
-        ...rule,
-        uiParentRole,
-        canView: parent ? !!rule.canView && !!parent.canView : !!rule.canView,
-        canEdit: parent ? !!rule.canEdit && !!parent.canEdit : !!rule.canEdit,
-        canDelete: parent ? !!rule.canDelete && !!parent.canDelete : !!rule.canDelete,
-      };
-    });
-  };
+  const normalizeRules = (inputRules) =>
+    inputRules.map((rule) => ({
+      ...rule,
+      canView: !!rule.canView,
+      canEdit: !!rule.canEdit,
+      canDelete: !!rule.canDelete,
+    }));
 
   useEffect(() => {
     if (!isOpen || !boxId) return;
@@ -124,11 +159,10 @@ function AccessKeyPanel({
         if (cancelled) return;
 
         const nextPermissionMap =
-          permissionResult.status === 'fulfilled' ? normalizePermissions(permissionResult.value) : {};
+          permissionResult.status === 'fulfilled'
+            ? normalizePermissions(permissionResult.value)
+            : {};
         setPermissionMap(nextPermissionMap);
-        const nextMetaMap = Object.fromEntries(
-          Object.entries(nextPermissionMap).map(([rolle, cfg]) => [rolle, cfg?.__meta || { ...DEFAULT_META }])
-        );
 
         if (rollerResult.status === 'fulfilled') {
           setAlleRoller(Array.isArray(rollerResult.value) ? rollerResult.value : []);
@@ -138,20 +172,9 @@ function AccessKeyPanel({
 
         if (rulesResult.status === 'fulfilled') {
           const rawRules = Array.isArray(rulesResult.value) ? rulesResult.value : [];
-          const nextRules = rawRules.map((rule) => ({
-            ...rule,
-            uiParentRole: null,
-          }));
-          const roleSet = new Set(nextRules.map((r) => r.rolle));
-          const normalized = nextRules.map((rule) => {
-            const parentRole = nextPermissionMap[rule.rolle]?.__meta?.parentRole || null;
-            return {
-              ...rule,
-              uiParentRole: parentRole && roleSet.has(parentRole) ? parentRole : null,
-            };
-          });
-          setRules(normalizeRules(normalized, nextMetaMap));
-          setHideObject(nextRules.some((rule) => !!rule.hideObject));
+          const normalized = normalizeRules(rawRules);
+          setRules(normalized);
+          setHideObject(normalized.some((rule) => !!rule.hideObject));
         } else {
           throw rulesResult.reason;
         }
@@ -187,49 +210,20 @@ function AccessKeyPanel({
         canView: true,
         canEdit: false,
         canDelete: false,
-        uiParentRole: null,
       },
     ]));
     setNyRolle('');
+    setValgtUnderRolle('');
   };
 
   const handleChangeRule = (index, patch) => {
-    setRules((prev) => {
-      const next = prev.map((rule, i) => (i === index ? { ...rule, ...patch } : rule));
-      return normalizeRules(next);
-    });
+    setRules((prev) =>
+      normalizeRules(prev.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)))
+    );
   };
 
   const handleRemoveRule = (index) => {
     setRules((prev) => normalizeRules(prev.filter((_, i) => i !== index)));
-  };
-
-  const handleAddUnderRole = (parentRole) => {
-    const current = nyUnderRolle[parentRole];
-    const candidates = (underRoller[parentRole] || []).filter((rolle) => !brugteRoller.has(rolle));
-    const nextRole = current || candidates[0];
-    const parent = roleToRuleMap[parentRole];
-    if (!nextRole || !parent) return;
-
-    setRules((prev) => {
-      const parentIndex = prev.findIndex((r) => r.rolle === parentRole);
-      if (parentIndex === -1) return prev;
-      let insertIndex = parentIndex + 1;
-      while (insertIndex < prev.length && prev[insertIndex].uiParentRole === parentRole) {
-        insertIndex += 1;
-      }
-      const next = [...prev];
-      next.splice(insertIndex, 0, {
-        id: `temp-${Date.now()}`,
-        rolle: nextRole,
-        canView: !!parent.canView,
-        canEdit: !!parent.canEdit,
-        canDelete: !!parent.canDelete,
-        uiParentRole: parentRole,
-      });
-      return normalizeRules(next);
-    });
-    setNyUnderRolle((prev) => ({ ...prev, [parentRole]: '' }));
   };
 
   const handleSave = async () => {
@@ -270,7 +264,7 @@ function AccessKeyPanel({
       />
 
       {/* Sidepanel */}
-      <div className="w-full max-w-md bg-white shadow-2xl h-full overflow-y-auto">
+      <div className="w-full max-w-xl bg-white shadow-2xl h-full overflow-y-auto transition-all">
         <div className="px-5 py-4 border-b flex items-center justify-between">
           <div>
             <p className="text-xs tracking-wide text-slate-500 uppercase">
@@ -321,104 +315,149 @@ function AccessKeyPanel({
             <p className="text-sm text-slate-500">Indlæser roller og regler...</p>
           ) : (
             <>
+              <div className="space-y-2 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 text-xs">
+                <div className="flex flex-col gap-1">
+                  <span className="text-slate-600 font-semibold">Vælg fane</span>
+                  <select
+                    value={valgtTabId}
+                    onChange={(e) => {
+                      setValgtTabId(e.target.value);
+                      setValgtScope('');
+                      setValgtUnderRolle('');
+                      setNyRolle('');
+                    }}
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
+                  >
+                    {tabs.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-slate-600 font-semibold">
+                    Vælg rolle eller gruppe
+                  </span>
+                  <select
+                    value={valgtScope}
+                    onChange={(e) => {
+                      setValgtScope(e.target.value);
+                      setValgtUnderRolle('');
+                      setNyRolle('');
+                    }}
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
+                  >
+                    <option value="">Vælg rolle / gruppe</option>
+                    {topLevelRoller.map((rolle) => (
+                      <option key={`role-${rolle}`} value={`role:${rolle}`}>
+                        Rolle: {rolle}
+                      </option>
+                    ))}
+                    {grupperIaktivFane.map((g) => (
+                      <option key={`group-${g.id}`} value={`group:${g.id}`}>
+                        Gruppe: {g.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {valgtScope.startsWith('group:') && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-slate-600 font-semibold">
+                      Vælg rolle i gruppen
+                    </span>
+                    <select
+                      value={valgtUnderRolle}
+                      onChange={(e) => {
+                        setValgtUnderRolle(e.target.value);
+                        setNyRolle(e.target.value);
+                      }}
+                      className="rounded border border-slate-300 bg-white px-2 py-1"
+                    >
+                      <option value="">Vælg rolle</option>
+                      {rollerIValgtGruppe.map((rolle) => (
+                        <option key={`sub-${rolle}`} value={rolle}>
+                          {rolle}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-2">
                 {rules.length === 0 && (
                   <p className="text-xs text-slate-400">
-                    Ingen specifikke regler endnu. Klik på "+" for at tilføje en rolle.
+                    Ingen specifikke regler endnu. Vælg fane/rolle og klik på "Tilføj rolle".
                   </p>
                 )}
                 {rules.map((rule, index) => (
                   <div
                     key={rule.id || `${rule.rolle}-${index}`}
-                    className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50"
+                    className="flex flex-col gap-1 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50"
                   >
-                    <select
-                      className="flex-1 bg-transparent text-sm focus:outline-none"
-                      value={rule.rolle}
-                      onChange={(e) =>
-                        handleChangeRule(index, { rolle: e.target.value, uiParentRole: null })
-                      }
-                    >
-                      {(rule.uiParentRole
-                        ? (underRoller[rule.uiParentRole] || []).filter(
-                            (rolle) => rolle === rule.rolle || !brugteRoller.has(rolle)
-                          )
-                        : topLevelRoller.filter((rolle) => rolle === rule.rolle || !brugteRoller.has(rolle))
-                      ).map((rolle) => (
-                        <option key={rolle} value={rolle}>
-                          {rolle}
-                        </option>
-                      ))}
-                      {!((rule.uiParentRole ? (underRoller[rule.uiParentRole] || []) : topLevelRoller).includes(
-                        rule.rolle
-                      )) && (
-                        <option value={rule.rolle}>{rule.rolle}</option>
-                      )}
-                    </select>
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={!!rule.canView}
-                        disabled={!canUseRightFromParent(rule, 'canView')}
-                        onChange={(e) =>
-                          handleChangeRule(index, { canView: e.target.checked })
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollapsedRoles((prev) => ({
+                            ...prev,
+                            [rule.rolle]: !prev[rule.rolle],
+                          }))
                         }
-                      />
-                      Se
-                    </label>
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={!!rule.canEdit}
-                        disabled={!canUseRightFromParent(rule, 'canEdit')}
-                        onChange={(e) =>
-                          handleChangeRule(index, { canEdit: e.target.checked })
+                        className="text-xs w-5 h-5 flex items-center justify-center rounded border border-slate-300 text-slate-600 bg-white"
+                        title={
+                          collapsedRoles[rule.rolle]
+                            ? 'Forstør denne rolle'
+                            : 'Minimér denne rolle'
                         }
-                      />
-                      Redigér
-                    </label>
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={!!rule.canDelete}
-                        disabled={!canUseRightFromParent(rule, 'canDelete')}
-                        onChange={(e) =>
-                          handleChangeRule(index, { canDelete: e.target.checked })
-                        }
-                      />
-                      Slet
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveRule(index)}
-                      className="text-slate-300 hover:text-red-500 text-sm"
-                    >
-                      ✕
-                    </button>
-                    {!rolleMetaMap[rule.rolle]?.parentRole && !!underRoller[rule.rolle]?.length && (
-                      <div className="ml-1 flex items-center gap-1">
-                        <select
-                          value={nyUnderRolle[rule.rolle] || ''}
-                          onChange={(e) => setNyUnderRolle((prev) => ({ ...prev, [rule.rolle]: e.target.value }))}
-                          className="max-w-[9rem] rounded border border-slate-200 bg-white text-xs px-1 py-0.5"
-                        >
-                          <option value="">Vælg underrolle</option>
-                          {(underRoller[rule.rolle] || [])
-                            .filter((rolle) => !brugteRoller.has(rolle))
-                            .map((rolle) => (
-                              <option key={rolle} value={rolle}>
-                                {rolle}
-                              </option>
-                            ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => handleAddUnderRole(rule.rolle)}
-                          title="Tilføj under rolle"
-                          className="h-6 w-6 rounded border border-slate-300 bg-white text-sm hover:bg-slate-50"
-                        >
-                          +
-                        </button>
+                      >
+                        {collapsedRoles[rule.rolle] ? '+' : '−'}
+                      </button>
+                      <span className="flex-1 text-sm truncate">{rule.rolle}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRule(index)}
+                        className="text-slate-300 hover:text-red-500 text-sm"
+                        title="Fjern denne rolle"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {!collapsedRoles[rule.rolle] && (
+                      <div className="flex flex-wrap gap-3 pl-6 pt-1">
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={!!rule.canView}
+                            onChange={(e) =>
+                              handleChangeRule(index, { canView: e.target.checked })
+                            }
+                          />
+                          Se
+                        </label>
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={!!rule.canEdit}
+                            onChange={(e) =>
+                              handleChangeRule(index, { canEdit: e.target.checked })
+                            }
+                          />
+                          Redigér
+                        </label>
+                        <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={!!rule.canDelete}
+                            onChange={(e) =>
+                              handleChangeRule(index, { canDelete: e.target.checked })
+                            }
+                          />
+                          Slet
+                        </label>
                       </div>
                     )}
                   </div>
@@ -428,11 +467,13 @@ function AccessKeyPanel({
               <div className="flex items-center gap-2">
                 <select
                   value={nyRolle}
-                  onChange={(e) => setNyRolle(e.target.value)}
+                  onChange={(e) => {
+                    setNyRolle(e.target.value);
+                  }}
                   className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
                 >
                   <option value="">Vælg rolle</option>
-                  {tilgaengeligeTopLevelRoller.map((rolle) => (
+                  {tilgaengeligeRollerIScope.map((rolle) => (
                     <option key={rolle} value={rolle}>
                       {rolle}
                     </option>

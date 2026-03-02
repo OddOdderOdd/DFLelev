@@ -49,6 +49,12 @@ function anonymizeIp(ip = '') {
   return crypto.createHash('sha256').update(String(ip)).digest('hex').slice(0, 16);
 }
 
+function extractRights(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object' && Array.isArray(payload.rights)) return payload.rights;
+  return [];
+}
+
 function buildDefaultKaldenavn(navn = '') {
   const parts = String(navn)
     .trim()
@@ -344,12 +350,17 @@ router.get('/roller', async (req, res) => {
 router.get('/rettigheder', async (req, res) => {
   try {
     const permissions = await prisma.permission.findMany();
-    
+
     // Convert to object format: { "Undergrunden": ["kp:log", ...], ... }
     const result = {};
     permissions.forEach(p => {
-      const parsed = JSON.parse(p.rettigheder);
-      result[p.rolle] = Array.isArray(parsed) ? parsed : (parsed || { rights: [] });
+      let parsed;
+      try {
+        parsed = JSON.parse(p.rettigheder);
+      } catch {
+        parsed = [];
+      }
+      result[p.rolle] = extractRights(parsed);
     });
 
     res.json(result);
