@@ -3,20 +3,21 @@ import { useAuth } from '../context/AuthContext';
 import { getFolderAccessRules, saveFolderAccessRules } from '../utils/fileService';
 
 /**
- * Genbrugelig nøgle-/adgangskontrol for bokse og mapper.
+ * Genbrugelig nøgle-/adgangskontrol for bokse, mapper og filer.
  *
  * Bemærk: Backend arbejder i v2.0 med FolderAccessRule på sti-niveau.
  * Vi bruger derfor:
  * - folderPath: ''  for hele boksen (root)
  * - folderPath: 'Undermappe/...' for undermapper
  */
-function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
+function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objectType = 'folder' }) {
   const { erAdmin, token } = useAuth();
   const [alleRoller, setAlleRoller] = useState([]);
   const [rules, setRules] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [hideObject, setHideObject] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !boxId) return;
@@ -40,7 +41,9 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
         }
 
         if (rulesResult.status === 'fulfilled') {
-          setRules(rulesResult.value || []);
+          const nextRules = Array.isArray(rulesResult.value) ? rulesResult.value : [];
+          setRules(nextRules);
+          setHideObject(nextRules.some((rule) => !!rule.hideObject));
         } else {
           throw rulesResult.reason;
         }
@@ -76,6 +79,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
         rolle: nextRole,
         canView: true,
         canEdit: false,
+        canDelete: false,
       },
     ]);
   };
@@ -95,11 +99,13 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
     setError('');
     try {
       const cleaned = rules
-        .filter((r) => r.rolle && (r.canView || r.canEdit))
+        .filter((r) => r.rolle && (r.canView || r.canEdit || r.canDelete))
         .map((r) => ({
           rolle: r.rolle,
           canView: !!r.canView,
           canEdit: !!r.canEdit,
+          canDelete: !!r.canDelete,
+          hideObject: isHideObjectAvailable ? !!hideObject : false,
         }));
       await saveFolderAccessRules(boxId, folderPath || '', cleaned);
       onClose();
@@ -114,6 +120,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
   const description = folderPath
     ? `Adgang for undermappe: ${folderPath}`
     : 'Adgang for hele kassen';
+  const isHideObjectAvailable = objectType === 'folder' || objectType === 'file';
 
   return (
     <div className="fixed inset-0 z-[120] flex">
@@ -146,9 +153,24 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
 
         <div className="px-5 py-4 space-y-4">
           <p className="text-xs text-slate-500">
-            Roller her bestemmer, hvem der må se og redigere denne kasse/mappe.
+            Roller her bestemmer, hvem der må se, redigere og slette dette objekt.
             Ingen regler = synlig for alle med adgang til siden.
           </p>
+          {isHideObjectAvailable && (
+            <label className="flex items-center justify-between gap-3 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
+              <div>
+                <p className="text-sm font-medium text-slate-800">Skjul objekt</p>
+                <p className="text-xs text-slate-500">
+                  Skjuler objektet for brugere uden &quot;Se&quot;-rettighed.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={hideObject}
+                onChange={(e) => setHideObject(e.target.checked)}
+              />
+            </label>
+          )}
 
           {error && (
             <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -203,6 +225,16 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath }) {
                         }
                       />
                       Redigér
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={!!rule.canDelete}
+                        onChange={(e) =>
+                          handleChangeRule(index, { canDelete: e.target.checked })
+                        }
+                      />
+                      Slet
                     </label>
                     <button
                       type="button"

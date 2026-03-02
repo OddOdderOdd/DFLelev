@@ -259,7 +259,6 @@ function Ressourcer() {
                   onClick={() => setShowCreateModal(true)}
                   className="inline-flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
                 >
-                  <span>🔑</span>
                   <span>+ Opret kasse</span>
                 </button>
               )}
@@ -349,6 +348,7 @@ function Ressourcer() {
                           boxId: box.id,
                           folderPath: '',
                           label: box.titel || 'Kasse',
+                          objectType: 'box',
                         })
                       }
                       className="rounded-full bg-white/90 border border-slate-200 shadow-sm px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-1"
@@ -617,6 +617,7 @@ function Ressourcer() {
           boxId={accessTarget.boxId}
           folderPath={accessTarget.folderPath}
           objectLabel={accessTarget.label}
+          objectType={accessTarget.objectType}
         />
       )}
     </div>

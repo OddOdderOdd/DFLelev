@@ -455,15 +455,27 @@ function BoxDetail() {
                   onClick={() => setShowUploadModal(true)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                 >
-                  <span>🔑</span>
                   <span>+ Upload</span>
                 </button>
                 <button
                   onClick={() => setShowCreateFolderModal(true)}
                   className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                 >
-                  <span>🔑</span>
                   <span>+ Mappe</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAccessTarget({
+                      folderPath: currentPath || '',
+                      label: currentPath ? `Mappe: ${currentPath.split('/').pop()}` : `Kasse: ${box.titel}`,
+                      objectType: currentPath ? 'folder' : 'box',
+                    })
+                  }
+                  className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-4 py-2 rounded-lg font-medium transition-colors inline-flex items-center justify-center"
+                  title={currentPath ? 'Styr adgang til denne mappe' : 'Styr adgang til denne kasse'}
+                >
+                  🔑
                 </button>
               </div>
             )}
@@ -535,19 +547,19 @@ function BoxDetail() {
                     key={item.path}
                     className="group relative rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 hover:shadow-md transition-all overflow-hidden"
                   >
-                    {/* Admin key for mapper */}
-                    {isAdmin && isFolder && (
+                    {/* Admin key for mapper/filer */}
+                    {isAdmin && (
                       <button
                         type="button"
                         onClick={() =>
                           setAccessTarget({
-                            boxId: box.id,
                             folderPath: item.path,
-                            label: `Mappe: ${title}`,
+                            label: `${isFolder ? 'Mappe' : 'Fil'}: ${title}`,
+                            objectType: isFolder ? 'folder' : 'file',
                           })
                         }
                         className="absolute top-2 right-2 z-10 rounded-full bg-white/90 border border-slate-200 shadow-sm px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
-                        title="Styr adgang til denne mappe"
+                        title={`Styr adgang til denne ${isFolder ? 'mappe' : 'fil'}`}
                       >
                         🔑
                       </button>
@@ -1108,6 +1120,7 @@ function BoxDetail() {
           boxId={box.id}
           folderPath={accessTarget.folderPath}
           objectLabel={accessTarget.label}
+          objectType={accessTarget.objectType}
         />
       )}
     </div>

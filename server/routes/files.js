@@ -63,7 +63,6 @@ function parentPaths(pathValue = '') {
 async function hasFolderAccess(boxId, userId, targetPath = '', mode = 'view') {
   const roles = await getUserRoles(userId);
   if (roles.includes('Admin') || roles.includes('Owner')) return true;
-  if (!roles.length) return mode === 'view';
   const pathChain = parentPaths(targetPath);
 
   // Hent alle regler på den aktuelle sti + forældre
@@ -77,13 +76,23 @@ async function hasFolderAccess(boxId, userId, targetPath = '', mode = 'view') {
   // Ingen regler noget sted i kæden → åben læseadgang som standard
   if (!allRules.length) return mode === 'view';
 
-  // Når der findes regler, er objektet "låst ned" og kun roller med eksplicit regel kan se/redigere
+  // Rolle-match på tværs af sti-kæden
   const roleRules = allRules.filter((r) => roles.includes(r.rolle));
-  if (!roleRules.length) return false;
-
+  const hasHiddenConstraint = allRules.some((r) => r.hideObject);
   const allowView = roleRules.some((r) => r.canView);
   const allowEdit = roleRules.some((r) => r.canEdit);
-  return mode === 'edit' ? allowEdit : allowView;
+  const allowDelete = roleRules.some((r) => r.canDelete);
+
+  if (mode === 'edit') return allowEdit;
+  if (mode === 'delete') return allowDelete;
+
+  // "Skjul objekt" aktiveret: kræv eksplicit "se"-regel.
+  if (hasHiddenConstraint) return allowView;
+
+  // Uden skjul-toggle er objekt synligt som standard, medmindre brugeren
+  // har en eksplicit rolle-regel som fraviger det.
+  if (!roleRules.length) return true;
+  return allowView;
 }
 
 async function ensureFolderAccess(req, res, boxId, targetPath, mode = 'view') {
@@ -330,7 +339,7 @@ router.get('/sync/:boxId', requireAuth, async (req, res) => {
     });
 
     const visibleFiles = [];
-    for (const file of files) { if (await hasFolderAccess(boxId, req.user.id, file.sti.includes('/') ? file.sti.split('/').slice(0, -1).join('/') : '', 'view')) visibleFiles.push(file); }
+    for (const file of files) { if (await hasFolderAccess(boxId, req.user.id, file.sti, 'view')) visibleFiles.push(file); }
     const visibleFolders = [];
     for (const folder of folders) { if (await hasFolderAccess(boxId, req.user.id, folder.sti, 'view')) visibleFolders.push(folder); }
 
@@ -366,8 +375,7 @@ router.get('/:boxId/*', requireAuth, async (req, res) => {
     }
 
     const basePath = getBasePath(box.category);
-    const folderPath = filePath.includes('/') ? filePath.split('/').slice(0, -1).join('/') : '';
-    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'view'))) return;
+    if (!(await ensureFolderAccess(req, res, box.id, filePath, 'view'))) return;
     const fullPath = path.join(basePath, box.fysiskSti, filePath);
 
     if (!fs.existsSync(fullPath)) {
@@ -401,8 +409,7 @@ router.delete('/:boxId/*', requireAuth, async (req, res) => {
     }
 
     const basePath = getBasePath(box.category);
-    const folderPath = filePath.includes('/') ? filePath.split('/').slice(0, -1).join('/') : '';
-    if (!(await ensureFolderAccess(req, res, box.id, folderPath, 'view'))) return;
+    if (!(await ensureFolderAccess(req, res, box.id, filePath, 'delete'))) return;
     const fullPath = path.join(basePath, box.fysiskSti, filePath);
 
     if (!fs.existsSync(fullPath)) {
@@ -767,7 +774,15 @@ router.put('/access/:boxId', requireAuth, async (req, res) => {
     await prisma.folderAccessRule.deleteMany({ where: { boxId: box.id, folderPath } });
     if (rules.length) {
       await prisma.folderAccessRule.createMany({
-        data: rules.map((r) => ({ boxId: box.id, folderPath, rolle: r.rolle, canView: r.canView !== false, canEdit: !!r.canEdit }))
+        data: rules.map((r) => ({
+          boxId: box.id,
+          folderPath,
+          rolle: r.rolle,
+          canView: r.canView !== false,
+          canEdit: !!r.canEdit,
+          canDelete: !!r.canDelete,
+          hideObject: !!r.hideObject,
+        }))
       });
     }
     const folderMeta = folderPath

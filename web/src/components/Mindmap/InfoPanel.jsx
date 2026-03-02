@@ -3,6 +3,57 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAdmin } from '../../context/AdminContext';
 
+const EMPTY_NODE_RULE = {
+  editContentRoles: [],
+  editColorRoles: [],
+  deleteNodeRoles: [],
+  editAssociationRoles: [],
+};
+
+function normalizeNodeRule(rule = {}) {
+  return {
+    editContentRoles: Array.isArray(rule.editContentRoles) ? rule.editContentRoles : [],
+    editColorRoles: Array.isArray(rule.editColorRoles) ? rule.editColorRoles : [],
+    deleteNodeRoles: Array.isArray(rule.deleteNodeRoles) ? rule.deleteNodeRoles : [],
+    editAssociationRoles: Array.isArray(rule.editAssociationRoles) ? rule.editAssociationRoles : [],
+  };
+}
+
+function nodeRuleToRows(rule = EMPTY_NODE_RULE) {
+  const normalized = normalizeNodeRule(rule);
+  const roles = new Set([
+    ...normalized.editContentRoles,
+    ...normalized.editColorRoles,
+    ...normalized.deleteNodeRoles,
+    ...normalized.editAssociationRoles,
+  ]);
+  return [...roles].map((rolle) => ({
+    id: `row-${rolle}`,
+    rolle,
+    canEditContent: normalized.editContentRoles.includes(rolle),
+    canEditColor: normalized.editColorRoles.includes(rolle),
+    canDelete: normalized.deleteNodeRoles.includes(rolle),
+    canEditAssociation: normalized.editAssociationRoles.includes(rolle),
+  }));
+}
+
+function rowsToNodeRule(rows = []) {
+  const nextRule = {
+    editContentRoles: [],
+    editColorRoles: [],
+    deleteNodeRoles: [],
+    editAssociationRoles: [],
+  };
+  rows.forEach((row) => {
+    if (!row.rolle) return;
+    if (row.canEditContent) nextRule.editContentRoles.push(row.rolle);
+    if (row.canEditColor) nextRule.editColorRoles.push(row.rolle);
+    if (row.canDelete) nextRule.deleteNodeRoles.push(row.rolle);
+    if (row.canEditAssociation) nextRule.editAssociationRoles.push(row.rolle);
+  });
+  return nextRule;
+}
+
 const InfoPanel = ({
   element,
   onClose,
@@ -42,12 +93,7 @@ const InfoPanel = ({
   const [hasEndArrow, setHasEndArrow] = useState(false);
   const [edgeColor, setEdgeColor] = useState('#334155');
   const [showNodeKeyPanel, setShowNodeKeyPanel] = useState(false);
-  const [localNodeRule, setLocalNodeRule] = useState({
-    editContentRoles: [],
-    editColorRoles: [],
-    deleteNodeRoles: [],
-    editAssociationRoles: [],
-  });
+  const [nodePermissionRows, setNodePermissionRows] = useState([]);
 
   // Initialize state based on element type
   useEffect(() => {
@@ -70,13 +116,12 @@ const InfoPanel = ({
 
   useEffect(() => {
     if (!isNode || isGroupNode) return;
-    setLocalNodeRule({
-      editContentRoles: nodePermissionRule?.editContentRoles || [],
-      editColorRoles: nodePermissionRule?.editColorRoles || [],
-      deleteNodeRoles: nodePermissionRule?.deleteNodeRoles || [],
-      editAssociationRoles: nodePermissionRule?.editAssociationRoles || [],
-    });
+    setNodePermissionRows(nodeRuleToRows(nodePermissionRule || EMPTY_NODE_RULE));
   }, [isNode, isGroupNode, nodePermissionRule, element.data?.id]);
+
+  useEffect(() => {
+    if (!isNode || isGroupNode) setShowNodeKeyPanel(false);
+  }, [isNode, isGroupNode, element.data?.id]);
 
   // Handle node label change
   const handleLabelChange = (e) => {
@@ -214,14 +259,41 @@ const InfoPanel = ({
   const canDeleteNode = canUseMindmapControl || !!nodeCapabilities?.canDeleteNode;
   const canEditAssociation = canUseMindmapControl || !!nodeCapabilities?.canEditAssociation;
 
-  const updateNodeRuleRoles = (key, rolle) => {
+  const updateNodePermissionRows = (nextRows) => {
+    setNodePermissionRows(nextRows);
+    onNodePermissionChange?.(element.data.id, rowsToNodeRule(nextRows));
+  };
+
+  const addNodePermissionRole = () => {
     if (!isNode || isGroupNode) return;
-    const current = new Set(localNodeRule[key] || []);
-    if (current.has(rolle)) current.delete(rolle);
-    else current.add(rolle);
-    const nextRule = { ...localNodeRule, [key]: [...current] };
-    setLocalNodeRule(nextRule);
-    onNodePermissionChange?.(element.data.id, nextRule);
+    const used = new Set(nodePermissionRows.map((row) => row.rolle));
+    const nextRole = availableRoles.find((rolle) => !used.has(rolle)) || availableRoles[0];
+    if (!nextRole) return;
+    updateNodePermissionRows([
+      ...nodePermissionRows,
+      {
+        id: `row-${nextRole}-${Date.now()}`,
+        rolle: nextRole,
+        canEditContent: true,
+        canEditColor: false,
+        canDelete: false,
+        canEditAssociation: false,
+      },
+    ]);
+  };
+
+  const updateNodePermissionRow = (index, patch) => {
+    if (!isNode || isGroupNode) return;
+    const nextRows = nodePermissionRows.map((row, rowIndex) =>
+      rowIndex === index ? { ...row, ...patch } : row
+    );
+    updateNodePermissionRows(nextRows);
+  };
+
+  const removeNodePermissionRow = (index) => {
+    if (!isNode || isGroupNode) return;
+    const nextRows = nodePermissionRows.filter((_, rowIndex) => rowIndex !== index);
+    updateNodePermissionRows(nextRows);
   };
 
   return (
@@ -347,46 +419,6 @@ const InfoPanel = ({
           overflowY: 'auto',
         }}
       >
-        {isNode && !isGroupNode && isAdmin && canConfigurePermissions && showNodeKeyPanel && (
-          <div
-            style={{
-              marginBottom: '20px',
-              border: '1px solid #cbd5e1',
-              borderRadius: '8px',
-              padding: '12px',
-              backgroundColor: '#f8fafc',
-            }}
-          >
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-              🔑 Node-adgang
-            </div>
-            {[
-              ['editContentRoles', 'Rediger indhold (titel + beskrivelse)'],
-              ['editColorRoles', 'Rediger farve'],
-              ['deleteNodeRoles', 'Tilladelse til at slette node'],
-              ['editAssociationRoles', 'Rediger association (gruppe + læs mere)'],
-            ].map(([key, labelText]) => (
-              <div key={key} style={{ marginBottom: '8px' }}>
-                <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
-                  {labelText}
-                </div>
-                <div style={{ display: 'grid', gap: '4px', maxHeight: '110px', overflowY: 'auto' }}>
-                  {availableRoles.map((rolle) => (
-                    <label key={`${key}-${rolle}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-                      <input
-                        type="checkbox"
-                        checked={(localNodeRule[key] || []).includes(rolle)}
-                        onChange={() => updateNodeRuleRoles(key, rolle)}
-                      />
-                      <span>{rolle}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* NODE CONTENT */}
         {isNode && (
           <>
@@ -919,6 +951,176 @@ const InfoPanel = ({
           >
             🗑️ Slet {isNode ? 'node' : 'forbindelse'}
           </button>
+        </div>
+      )}
+
+      {isNode && !isGroupNode && isAdmin && canConfigurePermissions && showNodeKeyPanel && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, display: 'flex' }}>
+          <div
+            style={{ flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)' }}
+            onClick={() => setShowNodeKeyPanel(false)}
+          />
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '380px',
+              height: '100%',
+              backgroundColor: '#ffffff',
+              boxShadow: '-4px 0 16px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '12px', letterSpacing: '0.04em', textTransform: 'uppercase', color: '#64748b', fontWeight: 600 }}>
+                  Node adgang
+                </div>
+                <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
+                  🔑 Node kontrol
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowNodeKeyPanel(false)}
+                style={{
+                  border: 'none',
+                  backgroundColor: '#f1f5f9',
+                  color: '#475569',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                }}
+                title="Luk panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: '16px 20px', overflowY: 'auto', display: 'grid', gap: '10px' }}>
+              <div style={{ fontSize: '13px', color: '#475569' }}>
+                Vælg roller og rettigheder for denne node.
+              </div>
+
+              {nodePermissionRows.length === 0 && (
+                <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                  Ingen roller endnu. Tryk på &quot;+ Tilføj rolle&quot;.
+                </div>
+              )}
+
+              {nodePermissionRows.map((row, index) => (
+                <div
+                  key={row.id || `${row.rolle}-${index}`}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    padding: '8px 10px',
+                    backgroundColor: '#f8fafc',
+                    display: 'grid',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <select
+                      value={row.rolle}
+                      onChange={(event) => updateNodePermissionRow(index, { rolle: event.target.value })}
+                      style={{
+                        flex: 1,
+                        fontSize: '13px',
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      {availableRoles.map((rolle) => (
+                        <option key={`${row.id}-${rolle}`} value={rolle}>
+                          {rolle}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => removeNodePermissionRow(index)}
+                      style={{
+                        border: 'none',
+                        backgroundColor: 'transparent',
+                        color: '#94a3b8',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        lineHeight: 1,
+                      }}
+                      title="Fjern rolle"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!row.canEditContent}
+                        onChange={(event) => updateNodePermissionRow(index, { canEditContent: event.target.checked })}
+                      />
+                      Rediger indhold
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!row.canEditColor}
+                        onChange={(event) => updateNodePermissionRow(index, { canEditColor: event.target.checked })}
+                      />
+                      Rediger farver
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!row.canDelete}
+                        onChange={(event) => updateNodePermissionRow(index, { canDelete: event.target.checked })}
+                      />
+                      Slet
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!row.canEditAssociation}
+                        onChange={(event) => updateNodePermissionRow(index, { canEditAssociation: event.target.checked })}
+                      />
+                      Rediger association
+                    </label>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={addNodePermissionRole}
+                style={{
+                  justifySelf: 'start',
+                  border: '1px dashed #94a3b8',
+                  backgroundColor: '#ffffff',
+                  color: '#334155',
+                  borderRadius: '999px',
+                  padding: '6px 12px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                + Tilføj rolle
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

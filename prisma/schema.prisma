@@ -208,6 +208,8 @@ model FolderAccessRule {
   rolle      String
   canView    Boolean  @default(true)
   canEdit    Boolean  @default(false)
+  canDelete  Boolean  @default(false)
+  hideObject Boolean  @default(false)
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
