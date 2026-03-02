@@ -28,7 +28,15 @@ function normalizePermissions(data = {}) {
  * - folderPath: ''  for hele boksen (root)
  * - folderPath: 'Undermappe/...' for undermapper
  */
-function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objectType = 'folder' }) {
+function AccessKeyPanel({
+  isOpen,
+  onClose,
+  boxId,
+  objectLabel,
+  folderPath,
+  objectType = 'folder',
+  showHideToggle = false,
+}) {
   const { erAdmin, token } = useAuth();
   const [alleRoller, setAlleRoller] = useState([]);
   const [permissionMap, setPermissionMap] = useState({});
@@ -169,7 +177,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objec
   }
 
   const handleAddRole = () => {
-    const nextRole = nyRolle || tilgaengeligeTopLevelRoller[0];
+    const nextRole = nyRolle;
     if (!nextRole) return;
     setRules((prev) => normalizeRules([
       ...prev,
@@ -250,7 +258,8 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objec
   const description = folderPath
     ? `Adgang for undermappe: ${folderPath}`
     : 'Adgang for hele kassen';
-  const isHideObjectAvailable = objectType === 'folder' || objectType === 'file' || objectType === 'box';
+  const isHideObjectAvailable =
+    showHideToggle && (objectType === 'folder' || objectType === 'file' || objectType === 'box');
 
   return (
     <div className="fixed inset-0 z-[120] flex">
@@ -330,12 +339,19 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objec
                         handleChangeRule(index, { rolle: e.target.value, uiParentRole: null })
                       }
                     >
-                      {(rule.uiParentRole ? (underRoller[rule.uiParentRole] || []) : topLevelRoller).map((rolle) => (
+                      {(rule.uiParentRole
+                        ? (underRoller[rule.uiParentRole] || []).filter(
+                            (rolle) => rolle === rule.rolle || !brugteRoller.has(rolle)
+                          )
+                        : topLevelRoller.filter((rolle) => rolle === rule.rolle || !brugteRoller.has(rolle))
+                      ).map((rolle) => (
                         <option key={rolle} value={rolle}>
                           {rolle}
                         </option>
                       ))}
-                      {!((rule.uiParentRole ? (underRoller[rule.uiParentRole] || []) : topLevelRoller).includes(rule.rolle)) && (
+                      {!((rule.uiParentRole ? (underRoller[rule.uiParentRole] || []) : topLevelRoller).includes(
+                        rule.rolle
+                      )) && (
                         <option value={rule.rolle}>{rule.rolle}</option>
                       )}
                     </select>
@@ -379,7 +395,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objec
                     >
                       ✕
                     </button>
-                    {!!underRoller[rule.rolle]?.length && (
+                    {!rolleMetaMap[rule.rolle]?.parentRole && !!underRoller[rule.rolle]?.length && (
                       <div className="ml-1 flex items-center gap-1">
                         <select
                           value={nyUnderRolle[rule.rolle] || ''}
@@ -425,6 +441,7 @@ function AccessKeyPanel({ isOpen, onClose, boxId, objectLabel, folderPath, objec
                 <button
                   type="button"
                   onClick={handleAddRole}
+                  disabled={!nyRolle}
                   className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
                 >
                   <span>➕ Tilføj rolle</span>

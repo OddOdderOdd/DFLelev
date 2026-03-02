@@ -1121,6 +1121,7 @@ function BoxDetail() {
           folderPath={accessTarget.folderPath}
           objectLabel={accessTarget.label}
           objectType={accessTarget.objectType}
+          showHideToggle={true}
         />
       )}
     </div>

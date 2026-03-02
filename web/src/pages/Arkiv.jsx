@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { listBoxes, createBox, updateBox, deleteBox, getNasStatus, getBoxesSummary, formatFileSize } from '../utils/fileService';
 import AccessKeyPanel from '../components/AccessKeyPanel';
 
 function Arkiv() {
   const { isAdmin } = useAdmin();
-  const navigate = useNavigate();
   const [boxes, setBoxes] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState('recent');
@@ -133,6 +132,20 @@ function Arkiv() {
     // recent (default)
     return new Date(b.createdAt) - new Date(a.createdAt);
   });
+
+  const handleOpenMainAccessPanel = () => {
+    if (!sortedBoxes.length) {
+      alert('Der er ingen kasser at styre adgang for endnu.');
+      return;
+    }
+    const targetBox = sortedBoxes[0];
+    setAccessTarget({
+      boxId: targetBox.id,
+      folderPath: '',
+      label: targetBox.titel || 'Kasse',
+      objectType: 'box',
+    });
+  };
 
   const handleEditBox = async () => {
     if (!editingBox || !editingBox.titel.trim()) {
@@ -261,7 +274,7 @@ function Arkiv() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => navigate('/rettigheder-admin')}
+                    onClick={handleOpenMainAccessPanel}
                     className="inline-flex justify-center items-center bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-colors"
                     title="Rettigheder & roller"
                   >
@@ -624,6 +637,7 @@ function Arkiv() {
           folderPath={accessTarget.folderPath}
           objectLabel={accessTarget.label}
           objectType={accessTarget.objectType}
+          showHideToggle={false}
         />
       )}
     </div>
